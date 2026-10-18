@@ -4,7 +4,7 @@ name: App Android
 
 on:
   push:
-    branches: [main, v3]
+    branches: [main]
     paths-ignore: ['README.md']
   workflow_dispatch:
 
