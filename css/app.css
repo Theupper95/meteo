@@ -443,6 +443,7 @@ pre.prompt { white-space: pre-wrap; word-break: break-word; font-family: var(--f
 .radar-bar input { flex: 1; accent-color: #f1f4fa; min-width: 0; }
 .radar-time { min-width: 5.5em; text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
 .radar-map.leaflet-container { background: #0e1424; font-family: var(--font); }
+.radar-map .osm-dark { filter: invert(1) hue-rotate(185deg) brightness(0.9) contrast(0.82) saturate(0.3); }
 .radar-map.leaflet-container .leaflet-control-attribution { background: rgba(13, 18, 31, 0.72); color: rgba(241, 244, 250, 0.7); font-size: 10px; border-radius: 8px 0 0 0; }
 .radar-map.leaflet-container .leaflet-control-attribution a { color: rgba(241, 244, 250, 0.9); }
 

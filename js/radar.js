@@ -4,9 +4,9 @@
 import { getJSON } from './api.js';
 
 const FRAMES_URL = 'https://api.rainviewer.com/public/weather-maps.json';
-const BASE = 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png';
-const LABELS = 'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png';
-const ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>, radar <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>';
+// Mappa standard di OpenStreetMap, scurita con un filtro CSS (classe osm-dark) perché la pioggia risalti.
+const BASE = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, radar <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>';
 
 let leaflet = null;
 function loadLeaflet() {
@@ -42,16 +42,13 @@ export async function createRadar(el, place, { onFrame = () => {}, reduceMotion 
     worldCopyJump: true,
   }).setView([place.lat, place.lon], 7);
   map.attributionControl.setPrefix(false).addAttribution(ATTRIBUTION);
-  L.tileLayer(BASE, { subdomains: 'abcd', maxZoom: 19, detectRetina: true }).addTo(map);
+  L.tileLayer(BASE, { maxZoom: 19, className: 'osm-dark' }).addTo(map);
 
   // Un livello per fotogramma, tutti caricati subito: l'animazione cambia solo l'opacità.
   map.createPane('radar').style.zIndex = 350;
-  map.createPane('labels').style.zIndex = 450;
-  map.getPane('labels').style.pointerEvents = 'none';
   const layers = frames.map((f) => L.tileLayer(`${maps.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, {
     pane: 'radar', opacity: 0, maxNativeZoom: 7, maxZoom: 10, tileSize: 256,
   }).addTo(map));
-  L.tileLayer(LABELS, { subdomains: 'abcd', maxZoom: 19, pane: 'labels', detectRetina: true }).addTo(map);
   L.circleMarker([place.lat, place.lon], {
     radius: 6, weight: 2.5, color: '#ffffff', fillColor: '#0b1020', fillOpacity: 1, interactive: false,
   }).addTo(map);

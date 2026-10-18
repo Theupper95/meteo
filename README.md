@@ -72,7 +72,7 @@ l'app Claude (o claude.ai) con il messaggio già scritto; **Condividi** usa il m
 - Stazioni meteo: bollettini METAR dall'archivio dell'[Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/).
 - Allerte: [bollettino di criticità](https://github.com/pcm-dpc/DPC-Bollettini-Criticita-Idrogeologica-Idraulica)
   del Dipartimento della Protezione Civile, CC BY 4.0.
-- Radar: [RainViewer](https://www.rainviewer.com/). Mappe © OpenStreetMap, © CARTO. Libreria
+- Radar: [RainViewer](https://www.rainviewer.com/). Mappa © OpenStreetMap. Libreria
   della mappa: Leaflet (BSD-2, `vendor/LEAFLET-LICENSE`).
 - Nomi dei luoghi dal GPS: © OpenStreetMap (Nominatim). Carattere: Urbanist, SIL OFL 1.1.
 

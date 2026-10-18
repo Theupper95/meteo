@@ -956,7 +956,7 @@ function placesSheet() {
       ${toggles}
     </details>
     <details class="more"><summary>Dati e privacy</summary>
-      <p>Previsioni di Open-Meteo.com (CC BY 4.0). Clima 1991–2020 e verifica della pioggia dalla rianalisi ERA5 di Copernicus. Misure delle stazioni dai bollettini METAR, tramite l'Iowa Environmental Mesonet. Allerte dal bollettino di criticità della Protezione Civile. Radar di RainViewer, mappe © OpenStreetMap e CARTO. Nomi dei luoghi dal GPS: OpenStreetMap.</p>
+      <p>Previsioni di Open-Meteo.com (CC BY 4.0). Clima 1991–2020 e verifica della pioggia dalla rianalisi ERA5 di Copernicus. Misure delle stazioni dai bollettini METAR, tramite l'Iowa Environmental Mesonet. Allerte dal bollettino di criticità della Protezione Civile. Radar di RainViewer, mappa © OpenStreetMap. Nomi dei luoghi dal GPS: OpenStreetMap.</p>
       <p>I tuoi luoghi e il diario restano su questo telefono. Claude riceve la previsione solo quando premi il pulsante. Isobara ${VERSION}${inApp ? ', app Android' : ''}.</p>
       ${inApp ? `<a class="pill glass wide" href="${APK_URL}" target="_blank" rel="noopener">${UI.download}Scarica l'ultima versione</a>` : ''}
     </details>`);
