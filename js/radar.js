@@ -10,13 +10,16 @@ const ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright" target
 
 let leaflet = null;
 function loadLeaflet() {
+  if (!document.querySelector('link[data-leaflet]')) {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'vendor/leaflet.css';
+    css.dataset.leaflet = '';
+    document.head.append(css);
+  }
   if (window.L) return Promise.resolve(window.L);
   if (!leaflet) {
     leaflet = new Promise((resolve, reject) => {
-      const css = document.createElement('link');
-      css.rel = 'stylesheet';
-      css.href = 'vendor/leaflet.css';
-      document.head.append(css);
       const s = document.createElement('script');
       s.src = 'vendor/leaflet.js';
       s.onload = () => resolve(window.L);
