@@ -15,15 +15,17 @@ import {
   f0, f1, deg, pct, mm, signed, describe, rose, windText, makeFormatters,
   CONF_LABEL, reasonText, nextHoursText, buildPrompt, claudeUrl,
   nowcastText, alertHeadline, alertDayText, alertMax, airText, seaText, freezingText, uvText, diarySummaryText,
+  cm, amount,
 } from './text.js';
 import { weatherIcon, UI } from './icons.js';
-import { hourStrip, stripHours, tempColor } from './chart.js';
+import { hourStrip, stripHours, tempColor, showAmount } from './chart.js';
 import { createSky, skyState, toHex } from './sky.js';
 import { nowcast, airSummary, seaSummary } from './extras.js';
 import { getAlerts, OFFICIAL_URL, RISKS, LEVEL_WORDS } from './alerts.js';
 import { pickStation } from './stations.js';
+import { loadComuni, searchIndex, mergeResults, pickCentre } from './search.js';
 
-const VERSION = '3.0.2';
+const VERSION = '3.1.0';
 const VER_VERSION = 3;
 const FC_FRESH = 20 * 60e3;
 const VER_FRESH = 12 * 3600e3;
@@ -145,9 +147,26 @@ function updateSky() {
     if (state.preview != null && hs[state.preview]) { h = hs[state.preview]; time = h.t * 1000; }
     else h = nowValues(v.result);
   }
+  let precip = h?.precip ?? 0;
+  let pop = h?.pop ?? 0;
+  let kind = kindOf(h?.code);
+  // Adesso conta la pioggia dei prossimi 15 minuti, più precisa di quella dell'ora intera.
+  const steps = v && state.preview == null ? v.nowcast?.steps : null;
+  if (steps?.length) {
+    const now = steps.slice(0, 2);
+    const rate = Math.max(...now.map((x) => x.mm)) * 4;
+    const snowing = now.some((x) => (x.cm ?? 0) > 0.02);
+    if (rate >= 0.2) {
+      precip = Math.max(precip, rate);
+      pop = Math.max(pop, 0.9);
+      if (kind !== 'thunder') kind = snowing ? 'snow' : 'rain';
+    } else if ((kind === 'rain' || kind === 'snow') && rate < 0.05) {
+      precip = Math.min(precip, 0.15);
+    }
+  }
   const st = skyState({
     lat: place.lat, lon: place.lon, time,
-    cloud: h?.cloud ?? 18, precip: h?.precip ?? 0, pop: h?.pop ?? 0, kind: kindOf(h?.code),
+    cloud: h?.cloud ?? 18, precip, pop, kind, wind: h?.wind ?? 0,
   });
   sky.set(st);
   const root = document.documentElement;
@@ -487,27 +506,65 @@ function removePlace(id) {
   renderSheet('places');
 }
 
+// Due ricerche insieme: i comuni italiani per qualsiasi parte del nome (subito, anche senza rete)
+// e Open-Meteo per l'inizio del nome in tutto il mondo, frazioni comprese.
 let searchTimer = null;
 let searchCtl = null;
+let searchSeq = 0;
+const search = { q: '', local: [], remote: [], remoteDone: false, remoteFailed: false };
+
+function showSearch() {
+  const { q, local, remote, remoteDone, remoteFailed } = search;
+  state.results = mergeResults(remote, local, q);
+  state.searching = !state.results.length && !remoteDone;
+  state.searchError = state.results.length || !remoteDone ? null
+    : remoteFailed ? 'Ricerca non riuscita: controlla la connessione.' : 'Nessun luogo con questo nome.';
+  renderResults();
+}
+
 function onSearchInput(text) {
   clearTimeout(searchTimer);
+  searchCtl?.abort();
   const q = text.trim();
-  if (q.length < 2) { state.results = []; state.searchError = null; renderResults(); return; }
+  const seq = ++searchSeq;
+  Object.assign(search, { q, local: [], remote: [], remoteDone: false, remoteFailed: false });
+  if (q.length < 2) { state.results = []; state.searchError = null; state.searching = false; renderResults(); return; }
+  loadComuni()
+    .then((index) => { if (seq === searchSeq) { search.local = searchIndex(index, q); showSearch(); } })
+    .catch(() => { /* senza elenco dei comuni resta la ricerca di Open-Meteo */ });
+  showSearch();
   searchTimer = setTimeout(async () => {
-    searchCtl?.abort();
-    searchCtl = new AbortController();
-    state.searching = true;
-    renderResults();
+    const ctl = (searchCtl = new AbortController());
     try {
-      state.results = await searchPlaces(q, { signal: searchCtl.signal });
-      state.searchError = state.results.length ? null : 'Nessun luogo con questo nome.';
-    } catch (e) {
-      if (searchCtl.signal.aborted) return;
-      state.searchError = 'Ricerca non riuscita: controlla la connessione.';
+      const found = await searchPlaces(q, { signal: ctl.signal });
+      if (seq !== searchSeq) return;
+      search.remote = found;
+    } catch {
+      if (ctl.signal.aborted || seq !== searchSeq) return;
+      search.remoteFailed = true;
     }
-    state.searching = false;
-    renderResults();
+    search.remoteDone = true;
+    showSearch();
   }, 320);
+}
+
+// Un comune trovato solo nell'elenco ha un punto qualsiasi del suo territorio: prima di aprirlo
+// si chiede a Open-Meteo il centro del paese. Se non risponde va bene anche quel punto.
+async function pickResult(r) {
+  if (!r) return;
+  if (!r.local) { selectPlace(r); return; }
+  const seq = ++searchSeq;
+  clearTimeout(searchTimer);
+  searchCtl?.abort();
+  state.results = [];
+  state.searchError = null;
+  state.searching = true;
+  renderResults();
+  let found = [];
+  try { found = await searchPlaces(r.name.split('/')[0], { timeout: 8000 }); } catch { /* resta il punto del comune */ }
+  if (seq !== searchSeq) return;
+  state.searching = false;
+  selectPlace(pickCentre(r, found));
 }
 
 function useGps() {
@@ -691,7 +748,7 @@ function heroHTML(v, first) {
     ? `<p class="when">${esc(dayWord(preview, result, fmt))}<button type="button" class="back" data-action="now">Torna ad adesso</button></p>`
     : '<p class="when"></p>';
   const sub = preview
-    ? `<p class="hilo">I modelli dicono tra ${deg(preview.lo)} e ${deg(preview.hi)}${preview.pop >= 0.2 ? `, pioggia ${pct(preview.pop)}` : ''}</p>`
+    ? `<p class="hilo">I modelli dicono tra ${deg(preview.lo)} e ${deg(preview.hi)}${preview.pop >= 0.2 ? `, ${amount(preview.precip, preview.snow).snow ? 'neve' : 'pioggia'} ${pct(preview.pop)}` : ''}${showAmount(preview) ? `, ${amount(preview.precip, preview.snow).text}` : ''}</p>`
     : today ? `<p class="hilo">Massima <b>${deg(today.tmax)}</b>, minima <b>${deg(today.tmin)}</b></p>` : '';
   // Per le prossime due ore conta il dato ogni 15 minuti, se annuncia pioggia.
   const nc = v.nowcast;
@@ -713,7 +770,7 @@ function stripHTML(v) {
   if (!s) return '';
   return `<section class="strip" aria-label="Prossime 48 ore">
     <div class="scroller">${s.html}</div>
-    <p class="strip-note">Tocca un'ora per vedere il suo cielo. La fascia chiara mostra quanto i modelli sono incerti.</p>
+    <p class="strip-note">Sotto la probabilità, i millimetri di pioggia o i centimetri di neve di ogni ora. Tocca un'ora per vedere il suo cielo; la fascia chiara mostra quanto i modelli sono incerti.</p>
   </section>`;
 }
 
@@ -729,12 +786,12 @@ function soonHTML(v) {
     const hgt = r < 0.2 ? 0 : Math.max(10, Math.sqrt(r / top) * 100);
     return `<span class="nc-col"><i style="height:${hgt.toFixed(0)}%"${hgt ? '' : ' class="dry"'}></i></span>`;
   }).join('');
-  const label = nc.steps.map((s) => `${fmt.hm(s.t)} ${mm(s.mm)} mm`).join(', ');
+  const label = nc.steps.map((s) => `${fmt.hm(s.t)} ${amount(s.mm, s.cm).text}`).join(', ');
   return `<section class="block soon">
     ${head}
     <div class="nc" role="img" aria-label="Pioggia ogni 15 minuti: ${esc(label)}">${bars}</div>
     <div class="nc-axis" aria-hidden="true"><span>adesso</span><span>${fmt.hm(nc.steps[0].t + 3600)}</span><span>${fmt.hm(nc.steps[0].t + 7200)}</span></div>
-    <p class="soft">${esc(nowcastText(nc, fmt))}</p>
+    <p class="soft">${esc(nowcastText(nc, fmt, nc.snow > 0.05 && nc.snow / 0.7 >= 0.5 * nc.total ? 'neve' : 'pioggia'))}${nc.any ? ` In due ore circa ${esc(amount(nc.total, nc.snow).text)}.` : ''}</p>
   </section>`;
 }
 
@@ -792,9 +849,13 @@ function weekHTML(v) {
 function extText(d) {
   const out = [];
   out.push(`Minima tra ${deg(d.tmin.p10)} e ${deg(d.tmin.p90)}, massima tra ${deg(d.tmax.p10)} e ${deg(d.tmax.p90)}: qui cadono 8 simulazioni su 10.`);
-  out.push(d.wet
-    ? `Pioggia in ${d.wet} simulazioni su ${d.members}${isNum(d.precip) && d.precip >= 0.5 ? `, a metà di loro più di ${mm(d.precip)} mm` : ''}.`
-    : 'Nessuna simulazione prevede pioggia.');
+  if (d.snowy && d.snowy >= d.wet / 2) {
+    out.push(`Neve in ${d.snowy} simulazioni su ${d.members}${isNum(d.snow) && d.snow >= 0.5 ? `, a metà di loro più di ${cm(d.snow)} cm` : ''}.`);
+  } else {
+    out.push(d.wet
+      ? `Pioggia in ${d.wet} simulazioni su ${d.members}${isNum(d.precip) && d.precip >= 0.5 ? `, a metà di loro più di ${mm(d.precip)} mm` : ''}.`
+      : 'Nessuna simulazione prevede pioggia.');
+  }
   if (d.corrected) out.push('Temperature corrette con l\'errore tipico del modello europeo in questo luogo.');
   return out.map((p) => `<p>${esc(p)}</p>`).join('');
 }
@@ -804,9 +865,13 @@ function dayText(d, v, fmt) {
   const why = d.conf.reasons.map(reasonText).join(', ');
   out.push(`${describe(d.code)}. ${CONF_LABEL[d.conf.level]}: ${why}.`);
   if (d.nRain) {
-    out.push(d.wetCount === 0 && d.pop < 0.15
-      ? 'Nessun modello prevede pioggia.'
-      : `Pioggia ${pct(d.pop)}, circa ${mm(d.precip)} mm: la prevedono ${d.wetCount} modelli su ${d.nRain}.`);
+    // la neve si misura in centimetri, la pioggia in millimetri
+    const q = amount(d.precip, d.snow);
+    const rainPart = Math.max(0, d.precip - (d.snow || 0) / 0.7);
+    if (d.wetCount === 0 && d.pop < 0.15 && (d.snow || 0) < 0.5) out.push('Nessun modello prevede pioggia o neve.');
+    else if (q.snow) out.push(`Neve ${pct(d.pop)}, circa ${q.text}: la prevedono ${d.snowCount} modelli su ${d.nSnow}.${rainPart >= 1 ? ` In più circa ${mm(rainPart)} mm di pioggia.` : ''}`);
+    else if ((d.snow || 0) >= 0.5) out.push(`Pioggia e neve ${pct(d.pop)}: circa ${mm(rainPart)} mm di pioggia e ${cm(d.snow)} cm di neve, secondo ${d.wetCount} modelli su ${d.nRain}.`);
+    else out.push(`Pioggia ${pct(d.pop)}, circa ${mm(d.precip)} mm: la prevedono ${d.wetCount} modelli su ${d.nRain}.`);
   }
   const r = rose(d.dirDom);
   if (isNum(d.windMax)) out.push(`Vento fino a ${f0(d.windMax)} km/h${r ? ` da ${r[0]} (${r[1]})` : ''}${isNum(d.gustMax) ? `, raffiche ${f0(d.gustMax)}` : ''}.`);
@@ -953,6 +1018,7 @@ function renderSheet(name) {
   if (name === 'places') {
     const input = $('#searchInput');
     input?.addEventListener('input', (e) => onSearchInput(e.target.value));
+    input?.addEventListener('focus', () => loadComuni().catch(() => {}), { once: true });
   }
 }
 
@@ -999,7 +1065,7 @@ function placesSheet() {
       ${toggles}
     </details>
     <details class="more"><summary>Dati e privacy</summary>
-      <p>Previsioni di Open-Meteo.com (CC BY 4.0). Clima 1991–2020 e verifica della pioggia dalla rianalisi ERA5 di Copernicus. Misure delle stazioni dai bollettini METAR, tramite l'Iowa Environmental Mesonet. Allerte dal bollettino di criticità della Protezione Civile. Radar di RainViewer; coste e confini di Natural Earth, regioni dell'ISTAT (openpolis). Nomi dei luoghi dal GPS: OpenStreetMap.</p>
+      <p>Previsioni di Open-Meteo.com (CC BY 4.0). Clima 1991–2020 e verifica della pioggia dalla rianalisi ERA5 di Copernicus. Misure delle stazioni dai bollettini METAR, tramite l'Iowa Environmental Mesonet. Allerte dal bollettino di criticità della Protezione Civile. Radar di RainViewer; coste e confini di Natural Earth, regioni dell'ISTAT (openpolis). Elenco dei comuni e abitanti dell'ISTAT, per la ricerca. Nomi dei luoghi dal GPS: OpenStreetMap.</p>
       <p>I tuoi luoghi e il diario restano su questo telefono. Claude riceve la previsione solo quando premi il pulsante. Isobara ${VERSION}${inApp ? ', app Android' : ''}.</p>
       ${inApp ? `<a class="pill glass wide" href="${APK_URL}" target="_blank" rel="noopener">${UI.download}Scarica l'ultima versione</a>` : ''}
     </details>`);
@@ -1284,7 +1350,7 @@ document.addEventListener('click', (e) => {
   if (t.id === 'radarBtn') { openSheet('radar'); return; }
   if (t.dataset.open) { openSheet(t.dataset.open); return; }
   if (t.dataset.pick != null) { selectPlace(QUICK[Number(t.dataset.pick)]); return; }
-  if (t.dataset.result != null) { selectPlace(state.results[Number(t.dataset.result)]); return; }
+  if (t.dataset.result != null) { pickResult(state.results[Number(t.dataset.result)]); return; }
   if (t.dataset.place) { const p = state.places.find((x) => x.id === t.dataset.place); if (p) selectPlace(p); return; }
   if (t.dataset.remove) { removePlace(t.dataset.remove); return; }
   if (t.dataset.day) {
@@ -1328,7 +1394,7 @@ document.querySelectorAll('dialog.sheet').forEach((d) => {
 window.addEventListener('popstate', () => { if (openName) closeSheet({ fromPop: true }); });
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.id === 'searchInput' && e.key === 'Enter' && state.results[0]) selectPlace(state.results[0]);
+  if (e.target.id === 'searchInput' && e.key === 'Enter' && state.results[0]) pickResult(state.results[0]);
 });
 
 let promptTimer = null;

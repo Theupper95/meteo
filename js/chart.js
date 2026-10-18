@@ -2,7 +2,7 @@
 // con una fascia chiara che mostra quanto i modelli sono d'accordo.
 
 import { isNum } from './engine.js';
-import { makeFormatters, f0, pct, describe } from './text.js';
+import { makeFormatters, f0, pct, describe, amount } from './text.js';
 import { iconBody } from './icons.js';
 import { sunPosition } from './sky.js';
 
@@ -21,6 +21,9 @@ function smooth(pts) {
   return d;
 }
 
+// La quantità si mostra quando è probabile e misurabile (almeno 0,1 mm o 0,2 cm).
+export const showAmount = (h) => (h.pop >= 0.2 && h.precip >= 0.1) || h.precip >= 0.3 || (h.snow ?? 0) >= 0.2;
+
 export function stripHours(result, count = 48) {
   const start = result.hours.findIndex((h) => h && h.t >= result.now - 3600);
   if (start < 0) return [];
@@ -32,7 +35,7 @@ export function hourStrip(result, bm, place, { selected = null } = {}) {
   if (hs.length < 4) return null;
   const fmt = makeFormatters(result.tz);
   const W = hs.length * COL;
-  const iconY = 26, popY = 70, zoneTop = 80, zoneH = 96, H = 196;
+  const iconY = 26, popY = 70, amtY = 86, zoneTop = 94, zoneH = 96, H = 210;
   const x = (k) => k * COL + COL / 2;
 
   const lo = Math.min(...hs.map((h) => h.lo));
@@ -73,11 +76,16 @@ export function hourStrip(result, bm, place, { selected = null } = {}) {
     parts.push(`<text class="st-time" x="${cx}" y="14">${k === 0 ? 'Ora' : fmt.hour(h.t)}</text>`);
     parts.push(`<svg class="wx" x="${cx - 14}" y="${iconY}" width="28" height="28" viewBox="0 0 24 24">${iconBody(h.code, day)}</svg>`);
     if (h.pop >= 0.2) parts.push(`<text class="st-pop" x="${cx}" y="${popY}">${pct(h.pop)}</text>`);
+    // quanto cade in quell'ora: millimetri di pioggia o centimetri di neve
+    if (showAmount(h)) {
+      const q = amount(h.precip, h.snow);
+      parts.push(`<text class="st-amt${q.snow ? ' snow' : ''}" x="${cx}" y="${amtY}">${q.text}</text>`);
+    }
     parts.push(`<circle class="st-dot${k === selected ? ' on' : ''}" cx="${cx}" cy="${cy.toFixed(1)}" r="${k === selected ? 4.5 : 3}"/>`);
     parts.push(`<text class="st-temp" x="${cx}" y="${(cy - 11).toFixed(1)}">${f0(h.temp)}°</text>`);
   });
 
-  const buttons = hs.map((h, k) => `<button type="button" class="st-hit" data-k="${k}" style="left:${k * COL}px" aria-label="${k === 0 ? 'Adesso' : `Ore ${fmt.hour(h.t)}`}: ${f0(h.temp)} gradi, ${describe(h.code).toLowerCase()}${h.pop >= 0.2 ? `, pioggia ${pct(h.pop)}` : ''}" aria-pressed="${k === selected}"></button>`).join('');
+  const buttons = hs.map((h, k) => `<button type="button" class="st-hit" data-k="${k}" style="left:${k * COL}px" aria-label="${k === 0 ? 'Adesso' : `Ore ${fmt.hour(h.t)}`}: ${f0(h.temp)} gradi, ${describe(h.code).toLowerCase()}${h.pop >= 0.2 ? `, precipitazioni ${pct(h.pop)}` : ''}${showAmount(h) ? `, ${amount(h.precip, h.snow).text}` : ''}" aria-pressed="${k === selected}"></button>`).join('');
 
   const html = `<div class="st-track" style="width:${W}px;height:${H}px">
     <svg class="st-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">${parts.join('')}</svg>

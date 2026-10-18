@@ -71,7 +71,7 @@ export function parseBestMatch(json) {
     temp: h.temperature_2m || null,
     freezing: h.freezing_level_height || null,
     current: json.current || null,
-    minutely: q.time?.length ? { time: q.time, precip: q.precipitation || [] } : null,
+    minutely: q.time?.length ? { time: q.time, precip: q.precipitation || [], snow: q.snowfall || null } : null,
     daily: {
       time: d.time || [],
       sunrise: d.sunrise || [],
@@ -568,6 +568,15 @@ export function buildForecast({ fc, bm, skill, weights, now, normals }) {
     const popEns = bmPop && isNum(bmPop[i]) ? bmPop[i] / 100 : null;
     const pop = popEns == null ? popModels : 0.5 * popModels + 0.5 * popEns;
 
+    // Neve in centimetri (Open-Meteo: 7 cm di neve = 10 mm d'acqua) e quota della precipitazione che è neve
+    const actS = act.filter((m) => isNum(fc.models[m].snow?.[i]));
+    let snow = 0;
+    if (actS.length) {
+      const wS = normalize(actS.map((m) => weights.rain[m] ?? 0));
+      snow = sum(actS.map((m, j) => wS[j] * fc.models[m].snow[i]));
+    }
+    const snowShare = precip > 0.05 ? clamp(snow / 0.7 / precip, 0, 1) : snow > 0.01 ? 1 : 0;
+
     // Vento con il fattore di correzione di ogni modello
     const actW = act.filter((m) => isNum(fc.models[m].wind?.[i]));
     let wind = null, gust = null, dir = null;
@@ -612,7 +621,7 @@ export function buildForecast({ fc, bm, skill, weights, now, normals }) {
 
     return {
       i, t, lead, temp, spread, lo: Math.min(...corr), hi: Math.max(...corr), perModel,
-      n: act.length, precip, pop, popModels, popEns, wind, gust, dir, cloud, rh,
+      n: act.length, precip, snow, snowShare, pop, popModels, popEns, wind, gust, dir, cloud, rh,
       // temperatura percepita: quella del modello "best match", spostata sulla nostra temperatura
       apparent: bmApp && isNum(bmApp[i]) ? bmApp[i] + (isNum(bmTemp?.[i]) ? temp - bmTemp[i] : 0) : null,
       frz: bmFrz && isNum(bmFrz[i]) ? bmFrz[i] : null,
@@ -648,16 +657,18 @@ export function buildForecast({ fc, bm, skill, weights, now, normals }) {
     const per = {};
     for (const m of models) {
       const mod = fc.models[m];
-      const vals = [], prs = [];
+      const vals = [], prs = [], sns = [];
       for (const i of idx) {
         if (isNum(mod.temp[i])) vals.push(mod.temp[i] - tempBias(skill[m], new Date(times[i] * 1000).getUTCHours(), alpha));
         if (isNum(mod.precip?.[i])) prs.push(mod.precip[i]);
+        if (isNum(mod.snow?.[i])) sns.push(mod.snow[i]);
       }
       if (vals.length >= Math.min(20, idx.length)) {
         per[m] = {
           tmax: Math.max(...vals),
           tmin: Math.min(...vals),
           precip: prs.length >= Math.min(20, idx.length) ? sum(prs) : null,
+          snow: sns.length >= Math.min(20, idx.length) ? sum(sns) : null,
         };
       }
     }
@@ -677,6 +688,13 @@ export function buildForecast({ fc, bm, skill, weights, now, normals }) {
       precip = sum(pp.map((m, j) => wP[j] * per[m].precip));
       popModels = weightedFraction(pp, wP, (m) => per[m].precip >= 0.5);
       wetCount = pp.filter((m) => per[m].precip >= 0.5).length;
+    }
+    const ps = pm.filter((m) => isNum(per[m].snow));
+    let snow = 0, snowCount = 0;
+    if (ps.length) {
+      const wS = normalize(ps.map((m) => weights.rain[m] ?? 0));
+      snow = sum(ps.map((m, j) => wS[j] * per[m].snow));
+      snowCount = ps.filter((m) => per[m].snow >= 0.5).length;
     }
     const extra = bmDaily.get(key) || {};
     const popEns = isNum(extra.popMax) ? extra.popMax / 100 : null;
@@ -702,7 +720,7 @@ export function buildForecast({ fc, bm, skill, weights, now, normals }) {
     // Fenomeno prevalente della giornata
     let code;
     const anyThunder = hs.some((h) => h.code === 95);
-    const snowy = hs.filter((h) => h.code >= 71 && h.code <= 77).length >= 3;
+    const snowy = hs.filter((h) => h.code >= 71 && h.code <= 77).length >= 3 || (snow >= 1 && snow / 0.7 >= 0.5 * precip);
     const showery = hs.filter((h) => h.code >= 80 && h.code <= 82).length >= hs.filter((h) => h.code >= 61 && h.code <= 65).length;
     const foggy = hs.filter((h) => h.code === 45 && h.hour >= 5 && h.hour <= 11).length >= 3;
     if (pop >= 0.5 && precip >= 1) {
@@ -745,6 +763,7 @@ export function buildForecast({ fc, bm, skill, weights, now, normals }) {
       tmaxLo: Math.min(...pm.map((m) => per[m].tmax)), tmaxHi: Math.max(...pm.map((m) => per[m].tmax)),
       tminLo: Math.min(...pm.map((m) => per[m].tmin)), tminHi: Math.max(...pm.map((m) => per[m].tmin)),
       precip, pop, popModels, popEns, wetCount, nRain: pp.length,
+      snow, snowCount, nSnow: ps.length,
       windMax, gustMax, dirDom, cloud: cloudDay, code,
       conf: { score, level, reasons },
       err: expectedError(skill, weights, dayIndex + 0.5),
@@ -788,6 +807,7 @@ export function buildExtended(ens, { tz, skill = {}, after = null } = {}) {
   const TX = series('temperature_2m_max');
   const TN = series('temperature_2m_min');
   const PR = series('precipitation_sum');
+  const SN = series('snowfall_sum');
   const st = skill.ecmwf_ifs?.t4 || skill.ecmwf_ifs?.t1 || null;
   const bx = st ? biasAt(st, 13) : 0;
   const bn = st ? biasAt(st, 4) : 0;
@@ -799,14 +819,17 @@ export function buildExtended(ens, { tz, skill = {}, after = null } = {}) {
     const tx = TX.map((a) => a[j]).filter(isNum).map((v) => v - bx).sort((a, b) => a - b);
     const tn = TN.map((a) => a[j]).filter(isNum).map((v) => v - bn).sort((a, b) => a - b);
     const pr = PR.map((a) => a[j]).filter(isNum).sort((a, b) => a - b);
+    const sn = SN.map((a) => a[j]).filter(isNum).sort((a, b) => a - b);
     if (tx.length < 10 || tn.length < 10) return;
     const wet = pr.filter((v) => v >= 1).length;
+    const snowy = sn.filter((v) => v >= 1).length;
     out.push({
       key, t,
       tmax: qs(tx), tmin: qs(tn),
       pop: pr.length ? wet / pr.length : null,
       wet, members: pr.length || tx.length,
       precip: pr.length ? quantile(pr, 0.5) : null,
+      snowy, snow: sn.length ? quantile(sn, 0.5) : null,
       corrected: !!st,
     });
   });

@@ -152,7 +152,7 @@ export function fetchBestMatch(place, opts) {
   return getJSON(url(FORECAST, {
     latitude: place.lat, longitude: place.lon,
     current: 'temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation,is_day',
-    minutely_15: 'precipitation',
+    minutely_15: 'precipitation,snowfall',
     hourly: 'temperature_2m,apparent_temperature,precipitation_probability,freezing_level_height',
     daily: 'sunrise,sunset,uv_index_max,precipitation_probability_max',
     timezone: 'auto', timeformat: 'unixtime', past_days: 1, forecast_days: 8,
@@ -164,7 +164,7 @@ export function fetchBestMatch(place, opts) {
 export function fetchEnsemble(place, opts) {
   return getJSON(url(ENSEMBLE, {
     latitude: place.lat, longitude: place.lon,
-    daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum',
+    daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum',
     models: 'ecmwf_ifs025_ensemble',
     forecast_days: 15, timezone: 'auto', timeformat: 'unixtime',
   }), { timeout: 30000, priority: 3, ...opts });
@@ -252,6 +252,8 @@ export async function searchPlaces(text, opts) {
     lat: Math.round(r.latitude * 10000) / 10000,
     lon: Math.round(r.longitude * 10000) / 10000,
     elevation: r.elevation,
+    cc: r.country_code || null,
+    pop: r.population || 0,
   }));
 }
 

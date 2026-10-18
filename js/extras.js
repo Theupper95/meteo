@@ -16,7 +16,7 @@ export function nowcast(bm, now) {
   if (start < 0) return null;
   const steps = [];
   for (let k = start; k < m.time.length && steps.length < 8; k++) {
-    steps.push({ t: m.time[k], mm: isNum(m.precip[k]) ? Math.max(0, m.precip[k]) : 0 });
+    steps.push({ t: m.time[k], mm: isNum(m.precip[k]) ? Math.max(0, m.precip[k]) : 0, cm: isNum(m.snow?.[k]) ? Math.max(0, m.snow[k]) : 0 });
   }
   if (steps.length < 4) return null;
   const wet = (s) => s.mm >= 0.05; // 0,2 mm/h: sotto è solo qualche goccia
@@ -32,6 +32,7 @@ export function nowcast(bm, now) {
     start: firstWet >= 0 ? steps[firstWet].t : null,
     end: wetNow && endIdx > 0 ? steps[endIdx].t : null,
     total: steps.reduce((s, x) => s + x.mm, 0),
+    snow: steps.reduce((s, x) => s + x.cm, 0),
   };
 }
 

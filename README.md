@@ -23,9 +23,14 @@ pagina Releases di questo repository.
 
 ## Cosa mostra
 
-- **Adesso e prossime 48 ore**: temperatura, cielo, pioggia e una fascia che mostra quanto i modelli
-  sono incerti. Il cielo sullo sfondo è quello del luogo in quel momento.
-- **Prossime due ore**: la pioggia ogni 15 minuti e il **radar** delle ultime due ore (RainViewer).
+- **Adesso e prossime 48 ore**: temperatura, cielo, probabilità e quantità di ogni ora (millimetri di
+  pioggia, centimetri di neve) e una fascia che mostra quanto i modelli sono incerti. Il cielo sullo
+  sfondo è quello del luogo in quel momento: pioggia e neve più fitte quanto più è forte la
+  precipitazione, inclinate dal vento, e i fulmini durante i temporali (niente animazioni se il
+  telefono ha le animazioni ridotte).
+- **Prossime due ore**: la pioggia (o la neve) ogni 15 minuti e il **radar** delle ultime due ore (RainViewer).
+- **Ricerca dei luoghi** per qualsiasi parte del nome: *lazzaro* trova San Lazzaro di Savena, *pascoli*
+  San Mauro Pascoli. I 7.896 comuni italiani sono nell'app e si trovano anche senza rete.
 - **Sette giorni** con il consenso dei modelli e la fiducia di ogni giorno, poi la **tendenza fino a
   15 giorni**: solo intervalli, dalle 51 simulazioni dell'ensemble ECMWF, perché oltre la settimana un
   numero secco sarebbe una finta precisione.
@@ -76,6 +81,10 @@ l'app Claude (o claude.ai) con il messaggio già scritto; **Condividi** usa il m
   [Natural Earth](https://www.naturalearthdata.com/) (pubblico dominio); regioni italiane: ISTAT tramite
   [openpolis/geojson-italy](https://github.com/openpolis/geojson-italy) (CC BY 4.0). Libreria della mappa:
   Leaflet (BSD-2, `vendor/LEAFLET-LICENSE`).
+- Ricerca: [geocoding di Open-Meteo](https://open-meteo.com/en/docs/geocoding-api) (GeoNames, CC BY 4.0) e
+  l'elenco dei comuni ISTAT tramite openpolis/geojson-italy (CC BY 4.0), con gli abitanti del censimento
+  ISTAT 2011 (CC BY 3.0 IT) da [matteocontrini/comuni-json](https://github.com/matteocontrini/comuni-json),
+  usati solo per mettere prima i comuni più grandi.
 - Nomi dei luoghi dal GPS: © OpenStreetMap (Nominatim). Carattere: Urbanist, SIL OFL 1.1.
 
 ## Struttura
@@ -86,6 +95,7 @@ l'app Claude (o claude.ai) con il messaggio già scritto; **Condividi** usa il m
 - `js/alerts.js`: bollettino della Protezione Civile e zona di allerta del luogo
 - `js/stations.js`: le stazioni meteo italiane con misure orarie
 - `js/radar.js`, `js/topo.js`, `data/italia.json`: il radar, disegnato dall'app su coste, confini e regioni
+- `js/search.js`, `data/comuni.json`: ricerca dei luoghi per parte del nome
 - `js/api.js`: richieste ai servizi di dati
 - `js/text.js`: testi in italiano e messaggio per Claude
 - `js/sky.js`, `js/chart.js`, `js/icons.js`: cielo animato, striscia delle ore, icone

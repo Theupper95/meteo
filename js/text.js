@@ -11,6 +11,14 @@ export const f0 = (x) => (isNum(x) ? String(Math.round(x)).replace('-', MINUS) :
 export const deg = (x) => `${f0(x)}°`;
 export const pct = (p) => `${Math.round(p * 100)}%`;
 export const mm = (x) => (x < 0.05 ? '0' : x < 10 ? nf1.format(x) : String(Math.round(x)));
+export const cm = (x) => (x < 0.05 ? '0' : x < 10 ? nf1.format(x) : String(Math.round(x)));
+
+// Quantità di un'ora o di un giorno: in centimetri se è soprattutto neve, altrimenti in millimetri.
+export function amount(precipMm, snowCm) {
+  const snowWater = (snowCm || 0) / 0.7;
+  if ((snowCm || 0) >= 0.05 && snowWater >= 0.5 * (precipMm || 0)) return { text: `${cm(snowCm)} cm`, snow: true };
+  return { text: `${mm(precipMm || 0)} mm`, snow: false };
+}
 export const signed = (x, digits = 1) => {
   if (!isNum(x)) return '–';
   const v = digits ? nf1.format(Math.abs(x)) : String(Math.round(Math.abs(x)));
@@ -267,12 +275,13 @@ export function buildPrompt({ place, result, skill, weights, evaluation, truthLa
   const step = full ? 3 : 3;
   const span = full ? 48 : 24;
   const hs = result.hours.filter((h) => h && h.t >= result.now - 1800 && h.t <= result.now + span * 3600);
-  L.push(`PROSSIME ${span} ORE (ogni ${step} ore: ora, temperatura, prob. pioggia, mm, vento km/h, nuvole):`);
+  L.push(`PROSSIME ${span} ORE (ogni ${step} ore: ora, temperatura, prob. precipitazioni, pioggia in mm o neve in cm, vento km/h, nuvole):`);
   const rows = [];
   for (let k = 0; k < hs.length; k += step) {
     const h = hs[k];
     const r = rose(h.dir);
-    rows.push(`${fmt.hour(h.t)}h ${f0(h.temp)}° ${pct(h.pop)} ${mm(h.precip)}mm ${r ? r[0] : ''}${f0(h.wind)} nuv${f0(h.cloud)}%${full ? ` (modelli ${f0(h.lo)}…${f0(h.hi)}°)` : ''}`);
+    const q = amount(h.precip, h.snow);
+    rows.push(`${fmt.hour(h.t)}h ${f0(h.temp)}° ${pct(h.pop)} ${q.snow ? `neve ${q.text.replace(' ', '')}` : q.text.replace(' ', '')} ${r ? r[0] : ''}${f0(h.wind)} nuv${f0(h.cloud)}%${full ? ` (modelli ${f0(h.lo)}…${f0(h.hi)}°)` : ''}`);
   }
   L.push(rows.join(' | '));
   L.push('');
@@ -284,9 +293,12 @@ export function buildPrompt({ place, result, skill, weights, evaluation, truthLa
     const range = full ? ` [max tra i modelli ${f0(d.tmaxLo)}…${f0(d.tmaxHi)}°]` : '';
     const conf = CONF_LABEL[d.conf.level].replace('Fiducia ', '');
     const why = d.conf.reasons.map(reasonText).join('; ');
-    const rain = d.wetCount === 0 && d.pop < 0.15
-      ? `niente pioggia (0 modelli su ${d.nRain})`
-      : `prob. pioggia ${pct(d.pop)}, ${mm(d.precip)} mm (la prevedono ${d.wetCount} modelli su ${d.nRain})`;
+    const q = amount(d.precip, d.snow);
+    const rain = d.wetCount === 0 && d.pop < 0.15 && (d.snow || 0) < 0.5
+      ? `niente pioggia né neve (0 modelli su ${d.nRain})`
+      : q.snow
+        ? `prob. precipitazioni ${pct(d.pop)}, neve ${q.text} (la prevedono ${d.snowCount} modelli su ${d.nSnow})`
+        : `prob. pioggia ${pct(d.pop)}, ${mm(d.precip)} mm${(d.snow || 0) >= 0.5 ? ` e ${cm(d.snow)} cm di neve` : ''} (la prevedono ${d.wetCount} modelli su ${d.nRain})`;
     const frz = full && d.freezing ? `, zero termico ${meters(d.freezing.med)}` : '';
     L.push(`- ${label}: ${f0(d.tmin)}/${f0(d.tmax)}°${norm}${range}, ${describe(d.code).toLowerCase()}, ${rain}, vento max ${f0(d.windMax)}${isNum(d.gustMax) ? `, raffiche ${f0(d.gustMax)}` : ''} km/h${frz}; fiducia ${conf} (${why})`);
   }
@@ -295,7 +307,7 @@ export function buildPrompt({ place, result, skill, weights, evaluation, truthLa
     L.push(full
       ? `TENDENZA FINO A 15 GIORNI (ensemble ECMWF di ${ext[0].members} simulazioni: mediana min/max e, tra parentesi, l'intervallo dove cade l'80% delle simulazioni; quota di simulazioni con almeno 1 mm di pioggia):`
       : `TENDENZA FINO A 15 GIORNI (ensemble ECMWF: mediana min/max, quota di simulazioni con pioggia):`);
-    L.push(ext.map((d) => `${fmt.weekday(d.t + 43200)} ${fmt.dayNum(d.t + 43200)} ${f0(d.tmin.p50)}/${f0(d.tmax.p50)}°${full ? ` (max ${f0(d.tmax.p10)}…${f0(d.tmax.p90)})` : ''} pioggia ${pct(d.pop ?? 0)}`).join(' | '));
+    L.push(ext.map((d) => `${fmt.weekday(d.t + 43200)} ${fmt.dayNum(d.t + 43200)} ${f0(d.tmin.p50)}/${f0(d.tmax.p50)}°${full ? ` (max ${f0(d.tmax.p10)}…${f0(d.tmax.p90)})` : ''} ${d.snowy && d.snowy >= d.wet / 2 ? 'neve' : 'pioggia'} ${pct(d.pop ?? 0)}`).join(' | '));
   }
   const outdoor = [];
   if (extra.air?.aqi != null) outdoor.push(`aria ${airText(extra.air).toLowerCase()}`);
