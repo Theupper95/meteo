@@ -16,7 +16,7 @@ Gli aggiornamenti arrivano da soli: basta riaprire l'app con la connessione atti
 ## Come funziona il metodo
 
 1. **Più modelli.** ECMWF IFS e AIFS (Centro europeo), ICON (Germania), ICON-2I (ItaliaMeteo),
-   ARPEGE/AROME (Météo-France), GFS (USA), UK Met Office. Altri si attivano dalla scheda *Luoghi*.
+   ARPEGE/AROME (Météo-France), GFS (USA), UK Met Office. Altri si attivano dal pannello *Luoghi*.
 2. **Verifica.** Per gli ultimi 35 giorni l'app recupera cosa avevano previsto i modelli 1 e 4
    giorni prima (Previous Runs API) e lo confronta con la realtà: l'analisi ECMWF ogni 6 ore per
    temperatura e vento, la rianalisi ERA5 per la pioggia.
@@ -26,7 +26,7 @@ Gli aggiornamenti arrivano da soli: basta riaprire l'app con la connessione atti
    sono pochi e con un tetto del 40% per non dipendere da un solo modello.
 5. **Fiducia.** Scende quando i modelli si dividono sulla pioggia o sulle temperature e quando il
    giorno è lontano.
-6. **Prova onesta.** Nella scheda *Verifica* il metodo viene allenato sulla prima metà del periodo e
+6. **Prova onesta.** Nel pannello *Come funziona* il metodo viene allenato sulla prima metà del periodo e
    messo alla prova sulla seconda, confrontandolo con la media semplice e con il miglior modello.
 
 Limite da tenere presente: la "verità" è l'analisi ECMWF, non una stazione meteo vera. I modelli
@@ -41,7 +41,7 @@ previsione. Toccando un'ora nella striscia, il cielo passa a quello di quell'ora
 
 ## Claude
 
-La scheda *Claude* prepara un messaggio con la previsione, l'accordo tra i modelli e l'affidabilità
+Il pulsante *Chiedi a Claude* prepara un messaggio con la previsione, l'accordo tra i modelli e l'affidabilità
 di ognuno. **Apri in Claude** apre l'app Claude (o claude.ai) con il messaggio già scritto;
 **Condividi** usa il menu di Android; **Copia** lo mette negli appunti.
 
