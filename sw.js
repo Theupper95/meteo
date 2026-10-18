@@ -1,7 +1,7 @@
 // Service worker: l'app si apre anche senza rete, con i file dell'ultima visita.
 // Online prende sempre i file nuovi (rete prima, poi copia locale).
 
-const VERSION = 'isobara-3.0.1';
+const VERSION = 'isobara-3.0.2';
 const SHELL = [
   './',
   './index.html',
@@ -19,6 +19,8 @@ const SHELL = [
   './js/alerts.js',
   './js/stations.js',
   './js/radar.js',
+  './js/topo.js',
+  './data/italia.json',
   './vendor/leaflet.js',
   './vendor/leaflet.css',
   './fonts/urbanist.woff2',

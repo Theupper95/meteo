@@ -72,8 +72,10 @@ l'app Claude (o claude.ai) con il messaggio già scritto; **Condividi** usa il m
 - Stazioni meteo: bollettini METAR dall'archivio dell'[Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/).
 - Allerte: [bollettino di criticità](https://github.com/pcm-dpc/DPC-Bollettini-Criticita-Idrogeologica-Idraulica)
   del Dipartimento della Protezione Civile, CC BY 4.0.
-- Radar: [RainViewer](https://www.rainviewer.com/). Mappa © OpenStreetMap. Libreria
-  della mappa: Leaflet (BSD-2, `vendor/LEAFLET-LICENSE`).
+- Radar: [RainViewer](https://www.rainviewer.com/), ridipinto con i colori dell'app. Coste e confini:
+  [Natural Earth](https://www.naturalearthdata.com/) (pubblico dominio); regioni italiane: ISTAT tramite
+  [openpolis/geojson-italy](https://github.com/openpolis/geojson-italy) (CC BY 4.0). Libreria della mappa:
+  Leaflet (BSD-2, `vendor/LEAFLET-LICENSE`).
 - Nomi dei luoghi dal GPS: © OpenStreetMap (Nominatim). Carattere: Urbanist, SIL OFL 1.1.
 
 ## Struttura
@@ -83,7 +85,7 @@ l'app Claude (o claude.ai) con il messaggio già scritto; **Condividi** usa il m
 - `js/extras.js`: prossime due ore, aria e pollini, mare
 - `js/alerts.js`: bollettino della Protezione Civile e zona di allerta del luogo
 - `js/stations.js`: le stazioni meteo italiane con misure orarie
-- `js/radar.js`: il radar sulla mappa
+- `js/radar.js`, `js/topo.js`, `data/italia.json`: il radar, disegnato dall'app su coste, confini e regioni
 - `js/api.js`: richieste ai servizi di dati
 - `js/text.js`: testi in italiano e messaggio per Claude
 - `js/sky.js`, `js/chart.js`, `js/icons.js`: cielo animato, striscia delle ore, icone

@@ -38,7 +38,7 @@ jobs:
       - name: Copia l'app web dentro l'APK
         run: |
           mkdir -p android/app/src/main/assets/www
-          cp -r index.html manifest.webmanifest css js fonts icons vendor android/app/src/main/assets/www/
+          cp -r index.html manifest.webmanifest css js fonts icons vendor data android/app/src/main/assets/www/
           echo "VERSION=$(grep -oP "const VERSION = '\K[0-9.]+" js/main.js)" >> "$GITHUB_ENV"
 
       - name: Compila

@@ -23,7 +23,7 @@ import { nowcast, airSummary, seaSummary } from './extras.js';
 import { getAlerts, OFFICIAL_URL, RISKS, LEVEL_WORDS } from './alerts.js';
 import { pickStation } from './stations.js';
 
-const VERSION = '3.0.1';
+const VERSION = '3.0.2';
 const VER_VERSION = 3;
 const FC_FRESH = 20 * 60e3;
 const VER_FRESH = 12 * 3600e3;
@@ -999,7 +999,7 @@ function placesSheet() {
       ${toggles}
     </details>
     <details class="more"><summary>Dati e privacy</summary>
-      <p>Previsioni di Open-Meteo.com (CC BY 4.0). Clima 1991–2020 e verifica della pioggia dalla rianalisi ERA5 di Copernicus. Misure delle stazioni dai bollettini METAR, tramite l'Iowa Environmental Mesonet. Allerte dal bollettino di criticità della Protezione Civile. Radar di RainViewer, mappa © OpenStreetMap. Nomi dei luoghi dal GPS: OpenStreetMap.</p>
+      <p>Previsioni di Open-Meteo.com (CC BY 4.0). Clima 1991–2020 e verifica della pioggia dalla rianalisi ERA5 di Copernicus. Misure delle stazioni dai bollettini METAR, tramite l'Iowa Environmental Mesonet. Allerte dal bollettino di criticità della Protezione Civile. Radar di RainViewer; coste e confini di Natural Earth, regioni dell'ISTAT (openpolis). Nomi dei luoghi dal GPS: OpenStreetMap.</p>
       <p>I tuoi luoghi e il diario restano su questo telefono. Claude riceve la previsione solo quando premi il pulsante. Isobara ${VERSION}${inApp ? ', app Android' : ''}.</p>
       ${inApp ? `<a class="pill glass wide" href="${APK_URL}" target="_blank" rel="noopener">${UI.download}Scarica l'ultima versione</a>` : ''}
     </details>`);
@@ -1186,12 +1186,24 @@ function radarSheet() {
   const nc = v?.nowcast;
   return sheetFrame('radar', 'Radar', `
     <div class="radar-map" id="radarMap"><p class="radar-msg">Carico il radar…</p></div>
-    <div class="radar-bar">
+    <div class="radar-ctl">
       <button type="button" class="round" id="radarPlay" data-action="radar-play" aria-label="Fai partire l'animazione">${UI.play}</button>
-      <input type="range" id="radarRange" min="0" max="12" value="12" step="1" aria-label="Momento del radar">
-      <span class="radar-time" id="radarTime">–</span>
+      <p class="radar-when"><b id="radarTime">–</b><span id="radarAgo"></span></p>
+      <div class="radar-legend" aria-hidden="true"><i></i><p><span>debole</span><span>forte</span><span>temporale</span></p></div>
     </div>
-    <p>La pioggia vista dai radar nelle ultime due ore, un'immagine ogni 10 minuti.${nc ? ` Per le prossime due ore valgono i modelli: ${esc(nowcastText(nc, fmt).replace(/^./, (c) => c.toLowerCase()))}` : ''}</p>`);
+    <input type="range" class="radar-range" id="radarRange" min="0" max="12" value="12" step="1" aria-label="Momento del radar">
+    <div class="radar-scale" id="radarScale" aria-hidden="true"></div>
+    <p>La pioggia vista dai radar nelle ultime due ore, un'immagine ogni 10 minuti.${nc ? ` Per le prossime due ore valgono i modelli: ${esc(nowcastText(nc, fmt).replace(/^./, (c) => c.toLowerCase()))}` : ''}</p>
+    <p class="fine">Radar RainViewer. Coste e confini Natural Earth, regioni ISTAT (openpolis).</p>`);
+}
+
+// "adesso", "20 minuti fa", "un'ora e 10 minuti fa"
+function minutesAgo(t) {
+  const m = Math.max(0, Math.round((Date.now() / 1000 - t) / 60));
+  if (m < 3) return 'adesso';
+  if (m < 60) return `${m} minuti fa`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return `${h === 1 ? "un'ora" : `${h} ore`}${r ? ` e ${r} minuti` : ''} fa`;
 }
 
 async function startRadar() {
@@ -1210,13 +1222,22 @@ async function startRadar() {
       reduceMotion: reduceMotion.matches,
       onFrame: (t, i, n) => {
         const time = $('#radarTime');
+        const agoEl = $('#radarAgo');
         const range = $('#radarRange');
-        if (time) time.textContent = i === n - 1 ? `${fmt.hm(t)}, l'ultima` : fmt.hm(t);
-        if (range) { range.max = String(n - 1); range.value = String(i); }
+        if (time) time.textContent = fmt.hm(t);
+        if (agoEl) agoEl.textContent = minutesAgo(t);
+        if (range) {
+          range.max = String(n - 1);
+          range.value = String(i);
+          range.style.setProperty('--fill', `${((i / Math.max(1, n - 1)) * 100).toFixed(1)}%`);
+        }
       },
     });
     if (token !== radarToken || openName !== 'radar') { api.destroy(); return; }
     radar = api;
+    const scale = $('#radarScale');
+    const ts = api.times;
+    if (scale && ts.length) scale.innerHTML = [ts[0], ts[Math.floor(ts.length / 2)], ts.at(-1)].map((t) => `<span>${fmt.hm(t)}</span>`).join('');
     syncRadarButton();
     setTimeout(() => radar?.resize(), 50);
   } catch {

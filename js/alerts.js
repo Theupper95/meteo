@@ -3,6 +3,7 @@
 // Non è una previsione di Isobara: viene mostrato a parte, così com'è.
 
 import { getJSON } from './api.js';
+import { decodeArcs, joinArcs } from './topo.js';
 
 const REPO = 'pcm-dpc/DPC-Bollettini-Criticita-Idrogeologica-Idraulica';
 const GH = `https://api.github.com/repos/${REPO}`;
@@ -58,30 +59,6 @@ export function readLevels(topo) {
   return out;
 }
 
-function decodeArcs(topo) {
-  const tr = topo.transform;
-  if (!tr) return topo.arcs;
-  const [sx, sy] = tr.scale;
-  const [tx, ty] = tr.translate;
-  return topo.arcs.map((arc) => {
-    let x = 0, y = 0;
-    return arc.map((p) => {
-      x += p[0];
-      y += p[1];
-      return [x * sx + tx, y * sy + ty];
-    });
-  });
-}
-
-function ringPoints(ring, arcs) {
-  const pts = [];
-  for (const i of ring) {
-    const a = i < 0 ? arcs[~i].slice().reverse() : arcs[i];
-    for (let k = pts.length ? 1 : 0; k < a.length; k++) pts.push(a[k]);
-  }
-  return pts;
-}
-
 const polygonsOf = (g) => (g.type === 'Polygon' ? [g.arcs] : g.type === 'MultiPolygon' ? g.arcs : []);
 
 function inRing(x, y, pts) {
@@ -114,7 +91,7 @@ export function findZone(topo, lat, lon) {
     for (const poly of polygonsOf(g)) {
       let inside = false;
       for (const ring of poly) {
-        const pts = ringPoints(ring, arcs);
+        const pts = joinArcs(ring, arcs);
         if (inRing(lon, lat, pts)) inside = !inside;
         for (let k = 1; k < pts.length; k++) {
           const d = segDist2(lon * kx, lat, [pts[k - 1][0] * kx, pts[k - 1][1]], [pts[k][0] * kx, pts[k][1]]);
