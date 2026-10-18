@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Da Android 10: niente velo scuro dietro i tasti di navigazione e la barra di stato. -->
+    <style name="Theme.Isobara" parent="Base.Isobara">
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+    </style>
+</resources>

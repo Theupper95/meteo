@@ -36,7 +36,63 @@ export function getText(u, opts) {
   return request(u, opts, 'text');
 }
 
-async function request(u, { timeout = 25000, signal } = {}, as = 'json') {
+/* ------------------------------------------------------------------ */
+/* Coda verso Open-Meteo                                                */
+/* ------------------------------------------------------------------ */
+
+// Il servizio gratuito lavora una richiesta alla volta per indirizzo e rifiuta quelle in più:
+// l'app ne tiene al massimo due in viaggio, e le più importanti passano prima
+// (priorità 0 = previsione e ricerca, 4 = clima di 30 anni).
+const OM_MAX = 2;
+let omRunning = 0;
+let omSeq = 0;
+const omWaiting = [];
+
+function omAcquire(priority) {
+  if (omRunning < OM_MAX) { omRunning++; return Promise.resolve(); }
+  return new Promise((resolve) => {
+    omWaiting.push({ priority, seq: omSeq++, resolve });
+    omWaiting.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
+  });
+}
+
+function omRelease() {
+  const next = omWaiting.shift();
+  if (next) next.resolve();
+  else omRunning--;
+}
+
+const isOpenMeteo = (u) => /^https:\/\/[a-z-]*\.?open-meteo\.com\//.test(u);
+
+// Errori passeggeri: servizio sovraccarico (503), troppe richieste insieme (429), gateway (502, 504).
+export const isTransient = (e) => [502, 503, 504].includes(e?.status) || (e?.status === 429 && /concurrent/i.test(e.reason || ''));
+
+const RETRY_AFTER = [1500, 4000, 9000];
+const pause = (ms, signal) => new Promise((resolve) => {
+  const t = setTimeout(resolve, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+});
+
+async function request(u, opts = {}, as = 'json') {
+  const om = isOpenMeteo(u);
+  let timeouts = 0;
+  for (let attempt = 0; ; attempt++) {
+    if (om) await omAcquire(opts.priority ?? 2);
+    try {
+      return await requestOnce(u, opts, as);
+    } catch (e) {
+      if (opts.signal?.aborted) throw e;
+      // si riprova da soli quando il servizio è solo momentaneamente occupato
+      const again = isTransient(e) ? attempt < RETRY_AFTER.length : e.reason === 'timeout' && timeouts++ < 1;
+      if (!again) throw e;
+    } finally {
+      if (om) omRelease();
+    }
+    await pause(RETRY_AFTER[Math.min(attempt, RETRY_AFTER.length - 1)] * (0.8 + 0.4 * Math.random()), opts.signal);
+  }
+}
+
+async function requestOnce(u, { timeout = 25000, signal } = {}, as = 'json') {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeout);
   const onAbort = () => ctl.abort();
@@ -89,7 +145,7 @@ export function fetchForecast(place, models, opts) {
     latitude: place.lat, longitude: place.lon,
     hourly: 'temperature_2m,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,snowfall,relative_humidity_2m',
     timezone: 'auto', timeformat: 'unixtime', past_days: 1, forecast_days: 8,
-  }, models, opts);
+  }, models, { priority: 0, ...opts });
 }
 
 export function fetchBestMatch(place, opts) {
@@ -101,7 +157,7 @@ export function fetchBestMatch(place, opts) {
     daily: 'sunrise,sunset,uv_index_max,precipitation_probability_max',
     timezone: 'auto', timeformat: 'unixtime', past_days: 1, forecast_days: 8,
     past_minutely_15: 1, forecast_minutely_15: 12,
-  }), opts);
+  }), { priority: 0, ...opts });
 }
 
 // 51 simulazioni del Centro europeo per 15 giorni: servono per la tendenza oltre la settimana.
@@ -111,7 +167,7 @@ export function fetchEnsemble(place, opts) {
     daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum',
     models: 'ecmwf_ifs025_ensemble',
     forecast_days: 15, timezone: 'auto', timeformat: 'unixtime',
-  }), { timeout: 30000, ...opts });
+  }), { timeout: 30000, priority: 3, ...opts });
 }
 
 // Qualità dell'aria e pollini (Copernicus CAMS).
@@ -121,7 +177,7 @@ export function fetchAir(place, opts) {
     current: 'european_aqi,european_aqi_pm2_5,european_aqi_pm10,european_aqi_nitrogen_dioxide,european_aqi_ozone',
     hourly: 'european_aqi,alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,olive_pollen,ragweed_pollen',
     forecast_days: 2, timezone: 'auto', timeformat: 'unixtime',
-  }), { timeout: 20000, ...opts });
+  }), { timeout: 20000, priority: 2, ...opts });
 }
 
 // Onde e temperatura dell'acqua nella cella di mare più vicina.
@@ -131,11 +187,11 @@ export function fetchMarine(place, opts) {
     current: 'wave_height,sea_surface_temperature',
     hourly: 'wave_height,wave_direction,wave_period,sea_surface_temperature',
     forecast_days: 2, timezone: 'auto', timeformat: 'unixtime',
-  }), { timeout: 20000, ...opts });
+  }), { timeout: 20000, priority: 2, ...opts });
 }
 
 export async function fetchElevation(place, opts) {
-  const data = await getJSON(url(ELEVATION, { latitude: place.lat, longitude: place.lon }), { timeout: 10000, ...opts });
+  const data = await getJSON(url(ELEVATION, { latitude: place.lat, longitude: place.lon }), { timeout: 10000, priority: 1, ...opts });
   const e = data?.elevation?.[0];
   return typeof e === 'number' ? e : null;
 }
@@ -166,7 +222,7 @@ export function fetchPreviousRuns(place, models, win, opts) {
     hourly: 'temperature_2m_previous_day1,temperature_2m_previous_day4,precipitation_previous_day1,wind_speed_10m_previous_day1',
     start_date: win.start, end_date: win.end,
     timezone: 'GMT', timeformat: 'unixtime',
-  }, models, opts);
+  }, models, { priority: 1, ...opts });
 }
 
 export function fetchTruth(place, win, opts) {
@@ -175,7 +231,7 @@ export function fetchTruth(place, win, opts) {
     hourly: 'temperature_2m,wind_speed_10m,precipitation',
     start_date: win.start, end_date: win.end,
     timezone: 'GMT', timeformat: 'unixtime',
-  }, ['ecmwf_ifs_analysis_long_window', 'era5'], opts);
+  }, ['ecmwf_ifs_analysis_long_window', 'era5'], { priority: 1, ...opts });
 }
 
 export function fetchNormals(place, opts) {
@@ -185,11 +241,11 @@ export function fetchNormals(place, opts) {
     daily: 'temperature_2m_max,temperature_2m_min',
     start_date: '1991-01-01', end_date: '2020-12-31',
     models: 'era5_seamless', timezone: 'auto',
-  }), { timeout: 60000, ...opts });
+  }), { timeout: 60000, priority: 4, ...opts });
 }
 
 export async function searchPlaces(text, opts) {
-  const data = await getJSON(url(GEOCODE, { name: text, count: 8, language: 'it', format: 'json' }), { timeout: 12000, ...opts });
+  const data = await getJSON(url(GEOCODE, { name: text, count: 8, language: 'it', format: 'json' }), { timeout: 12000, priority: 0, ...opts });
   return (data.results || []).map((r) => ({
     name: r.name,
     admin: [r.admin1, r.country_code !== 'IT' ? r.country : null].filter(Boolean).join(', '),

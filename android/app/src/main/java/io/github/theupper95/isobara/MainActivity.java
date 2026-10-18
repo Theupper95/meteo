@@ -64,6 +64,11 @@ public class MainActivity extends Activity {
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor(SKY));
         setContentView(web);
+        if (Build.VERSION.SDK_INT >= 29) {
+            // di nuovo dopo aver montato la pagina: alcuni telefoni rimettono il velo dietro i tasti
+            getWindow().setNavigationBarContrastEnforced(false);
+            getWindow().setStatusBarContrastEnforced(false);
+        }
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);

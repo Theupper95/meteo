@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Tema di sistema senza barre: il cielo della pagina arriva fino ai bordi dello schermo. -->
-    <style name="Theme.Isobara" parent="android:Theme.Material.NoActionBar">
+    <style name="Base.Isobara" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/sky</item>
         <item name="android:colorBackground">@color/sky</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <style name="Theme.Isobara" parent="Base.Isobara" />
 </resources>

@@ -9,6 +9,7 @@ import {
 import {
   fetchForecast, fetchBestMatch, fetchPreviousRuns, fetchTruth, fetchNormals, fetchEnsemble,
   fetchAir, fetchMarine, fetchElevation, fetchStationObs, verificationWindow, searchPlaces, reverseName, getJSON,
+  isTransient,
 } from './api.js';
 import {
   f0, f1, deg, pct, mm, signed, describe, rose, windText, makeFormatters,
@@ -22,7 +23,7 @@ import { nowcast, airSummary, seaSummary } from './extras.js';
 import { getAlerts, OFFICIAL_URL, RISKS, LEVEL_WORDS } from './alerts.js';
 import { pickStation } from './stations.js';
 
-const VERSION = '3.0.0';
+const VERSION = '3.0.1';
 const VER_VERSION = 3;
 const FC_FRESH = 20 * 60e3;
 const VER_FRESH = 12 * 3600e3;
@@ -110,6 +111,7 @@ const state = {
   searchError: null,
   gpsMessage: null,
   update: null,
+  retryAt: null,
 };
 if (state.models.length < 2) state.models = [...DEFAULT_MODELS];
 const currentPlace = () => state.places.find((p) => p.id === state.currentId) || null;
@@ -298,6 +300,7 @@ async function loadAlerts(place, token, { force = false } = {}) {
 
 async function load({ force = false } = {}) {
   const place = currentPlace();
+  clearRetry({ reset: false });
   if (!place) { state.view = null; render(); updateSky(); return; }
   const token = ++loadToken;
   const key = modelsKey(state.models);
@@ -342,9 +345,11 @@ async function load({ force = false } = {}) {
       compute();
       if (state.view) diarySave(place, state.view);
       loadExtras(place, token);
+      clearRetry();
     } catch (e) {
       if (token !== loadToken) return;
       state.error = e;
+      scheduleRetry(e);
     } finally {
       if (token === loadToken) state.loading = false;
     }
@@ -434,7 +439,7 @@ const newer = (a, b) => {
 async function checkUpdate() {
   if (!inApp) return;
   const last = store.get('updateCheck');
-  if (last && Date.now() - last.at < 12 * 3600e3) {
+  if (last && Date.now() - last.at < 6 * 3600e3) {
     if (last.version && newer(last.version, VERSION)) { state.update = last; render(); }
     return;
   }
@@ -462,6 +467,7 @@ function selectPlace(p) {
   }
   state.currentId = id;
   store.set('current', id);
+  clearRetry();
   state.results = [];
   state.revealed = null;
   closeSheet();
@@ -545,12 +551,49 @@ function toggleModel(id, on) {
 /* Pagina                                                               */
 /* ------------------------------------------------------------------ */
 
+// Le risposte del servizio arrivano in inglese: qui diventano frasi chiare.
 function errorText(e) {
   if (!e) return '';
+  const why = String(e.reason || '');
   if (e.reason === 'network') return 'Sei senza connessione';
-  if (e.reason === 'timeout') return 'Il server dei dati non risponde';
-  if (e.status === 429) return 'Troppe richieste in poco tempo, riprova tra un minuto';
+  if (e.reason === 'timeout') return 'Il servizio dei dati meteo non risponde';
+  if (e.status === 503 || /overloaded/i.test(why)) return 'Il servizio dei dati meteo (Open-Meteo) è sovraccarico in questo momento';
+  if (e.status === 429 && /concurrent/i.test(why)) return 'Il servizio dei dati meteo è molto occupato';
+  if (e.status === 429 && /daily/i.test(why)) return 'Per oggi è finito il numero di richieste gratuite al servizio dei dati meteo';
+  if (e.status === 429 && /hourly/i.test(why)) return 'Per quest\'ora è finito il numero di richieste gratuite al servizio dei dati meteo';
+  if (e.status === 429) return 'Troppe richieste in poco tempo';
+  if (e.status >= 500) return 'Il servizio dei dati meteo ha un problema';
+  if (e.status) return `Il servizio dei dati meteo ha rifiutato la richiesta (errore ${e.status})`;
   return e.message || 'Errore sconosciuto';
+}
+
+// Dopo un errore passeggero si riprova da soli: tra 10 secondi, poi 30, 60 e ogni 2 minuti.
+let retryTimer = null;
+let retryTick = null;
+let retryCount = 0;
+const retryable = (e) => isTransient(e) || e?.reason === 'timeout' || (e?.status === 429 && /minute|minutely/i.test(e.reason || ''));
+
+function scheduleRetry(e) {
+  clearTimeout(retryTimer);
+  if (!retryable(e)) { state.retryAt = null; return; }
+  const minute = e.status === 429 && !isTransient(e);
+  const delay = minute ? 65 : [10, 30, 60, 120][Math.min(retryCount, 3)];
+  retryCount++;
+  state.retryAt = Date.now() + delay * 1000;
+  retryTimer = setTimeout(() => { state.retryAt = null; load({ force: true }); }, delay * 1000);
+  clearInterval(retryTick);
+  retryTick = setInterval(() => {
+    const el = $('#retryIn');
+    if (!state.retryAt) { clearInterval(retryTick); return; }
+    if (el) el.textContent = String(Math.max(0, Math.ceil((state.retryAt - Date.now()) / 1000)));
+  }, 1000);
+}
+
+function clearRetry({ reset = true } = {}) {
+  clearTimeout(retryTimer);
+  clearInterval(retryTick);
+  state.retryAt = null;
+  if (reset) retryCount = 0;
 }
 
 function nowValues(result) {
@@ -586,7 +629,7 @@ function render() {
   if (!v) {
     main.innerHTML = state.loading || !state.error
       ? `<section class="hero"><p class="temp">–<span class="deg">°</span></p><p class="cond">Scarico ${state.models.length} modelli per ${esc(place.name)}</p><div class="loading-line" role="status" aria-label="Caricamento"></div></section>`
-      : `<section class="hero"><p class="cond">Non riesco a scaricare la previsione</p><p class="hilo">${esc(errorText(state.error))}.</p><div class="actions"><button type="button" class="pill glass" data-action="retry">Riprova</button></div></section>`;
+      : `<section class="hero"><p class="cond">Non riesco a scaricare la previsione</p><p class="hilo">${esc(errorText(state.error))}.${state.retryAt ? ` Riprovo da solo tra <span id="retryIn">${Math.max(1, Math.ceil((state.retryAt - Date.now()) / 1000))}</span> secondi.` : ''}</p><div class="actions"><button type="button" class="pill glass" data-action="retry">Riprova adesso</button></div></section>`;
     return;
   }
   const scroller = $('.scroller');
