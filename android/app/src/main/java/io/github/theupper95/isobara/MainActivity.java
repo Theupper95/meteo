@@ -28,8 +28,10 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -48,12 +50,15 @@ public class MainActivity extends Activity {
     private WebView web;
     private GeolocationPermissions.Callback geoCallback;
     private String geoOrigin;
-    private int insetTop;
-    private int insetBottom;
+    // scritti dal thread dell'interfaccia, letti da quello che serve i file
+    private volatile int insetTop;
+    private volatile int insetBottom;
+    private float density = 1f;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        density = getResources().getDisplayMetrics().density;
         edgeToEdge();
 
         web = new WebView(this);
@@ -129,12 +134,19 @@ public class MainActivity extends Activity {
     /** Passa alla pagina lo spazio occupato da barra di stato e barra di navigazione (in px CSS). */
     private void pushInsets() {
         if (web == null) return;
-        float d = getResources().getDisplayMetrics().density;
         String js = String.format(Locale.ROOT,
                 "document.documentElement.style.setProperty('--sat','%.1fpx');"
                         + "document.documentElement.style.setProperty('--sab','%.1fpx');",
-                insetTop / d, insetBottom / d);
+                insetTop / density, insetBottom / density);
         web.evaluateJavascript(js, null);
+    }
+
+    private static byte[] readAll(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[16384];
+        for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+        in.close();
+        return out.toByteArray();
     }
 
     private String versionName() {
@@ -188,6 +200,13 @@ public class MainActivity extends Activity {
             }
             try {
                 InputStream in = getAssets().open("www" + path);
+                if (path.equals("/index.html") && (insetTop > 0 || insetBottom > 0)) {
+                    // gli spazi delle barre di sistema già nella pagina, prima del primo disegno
+                    String html = new String(readAll(in), StandardCharsets.UTF_8);
+                    String tag = String.format(Locale.ROOT, "<html lang=\"it\" style=\"--sat:%.1fpx;--sab:%.1fpx\"",
+                            insetTop / density, insetBottom / density);
+                    in = new ByteArrayInputStream(html.replaceFirst("<html lang=\"it\"", tag).getBytes(StandardCharsets.UTF_8));
+                }
                 String type = mime(path);
                 boolean text = type.startsWith("text/") || type.endsWith("json") || type.endsWith("xml");
                 return new WebResourceResponse(type, text ? "utf-8" : null, 200, "OK", headers, in);

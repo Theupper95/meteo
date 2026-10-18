@@ -214,7 +214,7 @@ async function loadVerification(place, models, token) {
     const verModels = Object.keys(ver.fc);
     const usedStation = ver.truth.tSource === 'station';
     const tz = await placeTz(place);
-    const daily = dailyTruth({ obs: usedStation ? obs : null, arch: truth.data, archModels: truth.models, tz });
+    const daily = dailyTruth({ obs: usedStation ? obs : null, arch: truth.data, archModels: truth.models, tz, before: makeTimeTools(tz).dayKey(Date.now() / 1000) });
     const value = {
       v: VER_VERSION, at: Date.now(), key: modelsKey(models), window: win,
       skill: computeSkill(ver, verModels), evaluation: evaluateMethod(ver, verModels),
@@ -1083,7 +1083,7 @@ function trustSheet() {
     </li>`;
   }).join('');
   const truth = st
-    ? `Il tempo reale è la stazione meteo di ${esc(st.name)} (codice ${esc(st.id)}), a ${f0(st.km)} km da ${esc(place.name)} e a ${f0(st.elev)} m di quota: le misure di ogni ora dei bollettini METAR. Per questo la verifica dei modelli si fa nel punto della stazione. Per la pioggia si usa la rianalisi ERA5.`
+    ? `Il tempo reale è la stazione meteo di ${esc(st.name)} (codice ${esc(st.id)}), a ${f0(st.km)} km da ${esc(place.name)} e a ${f0(st.elev)} m di quota: le misure di ogni ora dei bollettini METAR. Per questo la verifica delle temperature si fa nel punto della stazione. Per il vento si usa l'analisi del Centro europeo (un anemometro in campo aperto misura più vento di quello che c'è in città), per la pioggia la rianalisi ERA5.`
     : `Qui vicino non c'è una stazione meteo con misure orarie alla stessa quota, quindi il tempo reale è l'analisi del Centro europeo (${esc(ver.truthLabel)}), che unisce milioni di osservazioni ogni 6 ore: per questo i modelli ECMWF partono un po' avvantaggiati. Per la pioggia si usa la rianalisi ERA5.`;
   return sheetFrame('trust', 'Come funziona', `
     <p>Dal ${fmtD(ver.window.start)} al ${fmtD(ver.window.end)} ho confrontato le previsioni fatte 1 e 4 giorni prima da ogni modello con il tempo reale${st ? ` misurato alla stazione di ${esc(st.name)}` : ` a ${esc(place.name)}`}.</p>

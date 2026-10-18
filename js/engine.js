@@ -187,11 +187,10 @@ export function parseVerification(prev, prevModels, arch, archModels, station = 
       tSource = 'era5';
     }
   }
-  let tW = fromStation(station?.wind);
-  if (count(tW) < 240) {
-    tW = align(sixHourly(get('wind_speed_10m', ANALYSIS)));
-    if (count(tW) < 20) tW = align(sixHourly(get('wind_speed_10m', 'era5')));
-  }
+  // Il vento no: l'anemometro di un aeroporto è in campo aperto e misura molto più vento
+  // di quello che si sente in città. Per il vento resta l'analisi, che descrive la zona.
+  let tW = align(sixHourly(get('wind_speed_10m', ANALYSIS)));
+  if (count(tW) < 20) tW = align(sixHourly(get('wind_speed_10m', 'era5')));
   const tP = align(get('precipitation', 'era5'));
 
   return {
@@ -820,9 +819,10 @@ export function buildExtended(ens, { tz, skill = {}, after = null } = {}) {
 
 // Massima, minima e pioggia di ogni giorno locale. Dalla stazione quando c'è
 // (pioggia dai fenomeni del METAR), altrimenti dalla rianalisi ERA5 (5 giorni di ritardo).
-export function dailyTruth({ obs = null, arch = null, archModels = [], tz }) {
+export function dailyTruth({ obs = null, arch = null, archModels = [], tz, before = null }) {
   const tools = makeTimeTools(tz);
   const out = {};
+  const done = (k) => !before || k < before; // il giorno in corso non è ancora finito
   const hasWx = !!obs?.some((o) => o.wx);
   if (obs?.length) {
     const byDay = new Map();
@@ -834,7 +834,7 @@ export function dailyTruth({ obs = null, arch = null, archModels = [], tz }) {
       if (o.wet) r.wet++;
     }
     for (const [k, r] of byDay) {
-      if (r.hours.size < 18) continue;
+      if (r.hours.size < 18 || !done(k)) continue;
       out[k] = { tmax: Math.max(...r.temps), tmin: Math.min(...r.temps), wet: hasWx ? r.wet >= 2 : null, src: 'station' };
     }
   }
@@ -858,7 +858,7 @@ export function dailyTruth({ obs = null, arch = null, archModels = [], tz }) {
         if (out[k].wet == null && rainKnown) out[k].wet = r.rain >= 1;
         continue;
       }
-      if (r.temps.length < 23) continue;
+      if (r.temps.length < 23 || !done(k)) continue;
       out[k] = { tmax: Math.max(...r.temps), tmin: Math.min(...r.temps), wet: rainKnown ? r.rain >= 1 : null, src: 'era5' };
     }
   }
