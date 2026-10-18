@@ -33,6 +33,12 @@ Limite da tenere presente: la "verità" è l'analisi ECMWF, non una stazione met
 ECMWF (IFS e AIFS) partono quindi un po' avvantaggiati. Un passo successivo possibile è usare le
 stazioni della rete ItaliaMeteo (MeteoHub) come riferimento.
 
+## Il cielo
+
+Lo sfondo è il cielo di quel luogo in quel momento: i colori dipendono dall'altezza del sole
+(calcolata dalle coordinate e dall'ora), e si mescolano con nuvole, pioggia, neve o nebbia della
+previsione. Toccando un'ora nella striscia, il cielo passa a quello di quell'ora.
+
 ## Claude
 
 La scheda *Claude* prepara un messaggio con la previsione, l'accordo tra i modelli e l'affidabilità
@@ -46,7 +52,7 @@ di ognuno. **Apri in Claude** apre l'app Claude (o claude.ai) con il messaggio g
   NOAA, Met Office, MeteoSvizzera, ECCC.
 - Clima 1991–2020 e verifica della pioggia: rianalisi ERA5 di Copernicus (via Open-Meteo).
 - Nomi dei luoghi dal GPS: © OpenStreetMap (Nominatim).
-- Caratteri: Sofia Sans, SIL Open Font License 1.1 (vedi `fonts/OFL.txt`).
+- Carattere: Urbanist, SIL Open Font License 1.1 (vedi `fonts/OFL.txt`).
 
 ## Struttura
 
@@ -54,5 +60,6 @@ di ognuno. **Apri in Claude** apre l'app Claude (o claude.ai) con il messaggio g
 - `js/engine.js`: il metodo (verifica, correzione, pesi, consenso, fiducia), solo funzioni pure
 - `js/api.js`: richieste a Open-Meteo
 - `js/text.js`: testi in italiano e messaggio per Claude
-- `js/chart.js`, `js/icons.js`: grafico e icone
+- `js/sky.js`: il cielo animato, calcolato dall'altezza del sole e dalla previsione
+- `js/chart.js`, `js/icons.js`: striscia delle ore e icone
 - `sw.js`, `manifest.webmanifest`: installazione e funzionamento offline
