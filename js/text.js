@@ -128,15 +128,121 @@ export function nextHoursText(result, fmt) {
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /* ------------------------------------------------------------------ */
+/* Prossime due ore, allerte, aria, mare, montagna                      */
+/* ------------------------------------------------------------------ */
+
+const rateWord = (mmh) => (mmh < 2.5 ? 'debole' : mmh < 7.5 ? 'moderata' : 'forte');
+
+export function nowcastText(nc, fmt, noun = 'pioggia') {
+  if (!nc) return '';
+  if (!nc.any) return 'Niente pioggia nelle prossime due ore.';
+  const w = `${noun} ${rateWord(nc.peak)}`;
+  if (nc.wetNow) return nc.end ? `${cap(w)} fino alle ${fmt.hm(nc.end)} circa.` : `${cap(w)} per almeno due ore.`;
+  return `${cap(w)} dalle ${fmt.hm(nc.start)} circa.`;
+}
+
+const RISK_FOR = { idraulico: 'piene dei fiumi', idrogeologico: 'frane e allagamenti', temporali: 'temporali' };
+const RISK_KEYS = ['idraulico', 'idrogeologico', 'temporali'];
+const LEVEL_NAME = ['nessuna allerta', 'allerta gialla', 'allerta arancione', 'allerta rossa'];
+
+export const alertMax = (levels) => (levels ? Math.max(0, ...levels.filter((v) => v != null)) : 0);
+export function alertRisks(levels, level) {
+  return RISK_KEYS.filter((_, i) => levels?.[i] === level).map((k) => RISK_FOR[k]);
+}
+const joinIt = (a) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} e ${a.at(-1)}`);
+
+// "Allerta arancione oggi per temporali", oppure null se non c'è nessuna allerta.
+export function alertHeadline(a) {
+  if (!a || a.outside) return null;
+  const t = alertMax(a.today);
+  const m = alertMax(a.tomorrow);
+  if (!t && !m) return null;
+  const [lv, when, levels] = t >= m || t >= 2 ? [t, 'oggi', a.today] : [m, 'domani', a.tomorrow];
+  if (!lv) return null;
+  return { level: lv, text: `${cap(LEVEL_NAME[lv])} ${when} per ${joinIt(alertRisks(levels, lv))}` };
+}
+
+export function alertDayText(levels) {
+  if (!levels) return 'non ancora pubblicata';
+  const lv = alertMax(levels);
+  if (!lv) return 'nessuna allerta';
+  const parts = [];
+  for (let l = 3; l >= 1; l--) {
+    const r = alertRisks(levels, l);
+    if (r.length) parts.push(`${LEVEL_NAME[l]} per ${joinIt(r)}`);
+  }
+  return parts.join('; ');
+}
+
+export const AQI_WORDS = ['buona', 'discreta', 'moderata', 'scadente', 'molto scadente', 'pessima'];
+
+export function airText(air) {
+  if (!air || air.aqi == null) return '';
+  let s = `${cap(AQI_WORDS[air.level])} (indice ${f0(air.aqi)})`;
+  if (air.main) s += `, per ${air.main}`;
+  if (air.later) s += `; più tardi ${AQI_WORDS[air.later.level]}`;
+  return s;
+}
+
+export function pollenText(air) {
+  if (!air?.pollen?.length) return '';
+  const words = ['', 'bassa', 'media', 'alta'];
+  return air.pollen.map((p) => `${p.name} ${words[p.level]}`).join(', ');
+}
+
+export function seaText(sea, compact = false) {
+  if (!sea) return '';
+  const parts = [];
+  const h = isNum(sea.todayMax) ? sea.todayMax : sea.waveNow;
+  if (isNum(h)) parts.push(`${cap(seaWordIt(h))}, onde fino a ${f1(h)} m`);
+  if (isNum(sea.sst)) parts.push(`acqua ${f0(sea.sst)}°`);
+  if (!compact && isNum(sea.tomorrowMax) && Math.abs(sea.tomorrowMax - (h ?? 0)) >= 0.3) parts.push(`domani ${seaWordIt(sea.tomorrowMax)} (${f1(sea.tomorrowMax)} m)`);
+  return parts.join(', ') + (!compact && sea.km > 8 ? ` (a ${f0(sea.km)} km)` : '');
+}
+
+function seaWordIt(h) {
+  if (h < 0.05) return 'calmo';
+  if (h <= 0.1) return 'quasi calmo';
+  if (h <= 0.5) return 'poco mosso';
+  if (h <= 1.25) return 'mosso';
+  if (h <= 2.5) return 'molto mosso';
+  if (h <= 4) return 'agitato';
+  if (h <= 6) return 'molto agitato';
+  if (h <= 9) return 'grosso';
+  return 'molto grosso';
+}
+
+// Quote con il punto delle migliaia (2.750 m), uguale su tutti i telefoni.
+export const meters = (m) => `${String(Math.round(m / 50) * 50).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} m`;
+
+export function freezingText(day, elevation) {
+  const f = day?.freezing;
+  if (!f) return '';
+  const ground = isNum(elevation) ? elevation : 0;
+  if (f.med <= ground + 100) return 'Zero termico al suolo: gelo';
+  const range = f.max - f.min >= 400 ? `tra ${meters(f.min)} e ${meters(f.max)}` : `intorno a ${meters(f.med)}`;
+  const snow = isNum(day.snowLine) && day.snowLine < 2600 && day.pop >= 0.3
+    ? `; se precipita, neve ${day.snowLine <= ground + 150 ? 'fino in basso' : `oltre i ${meters(day.snowLine)}`}`
+    : '';
+  return `Zero termico ${range}${snow}`;
+}
+
+export function uvText(uv) {
+  if (!isNum(uv)) return '';
+  const w = uv < 3 ? 'basso' : uv < 6 ? 'moderato' : uv < 8 ? 'alto' : uv < 11 ? 'molto alto' : 'estremo';
+  return `${cap(w)}, ${f0(uv)}${uv >= 6 ? ': meglio la crema solare' : ''}`;
+}
+
+/* ------------------------------------------------------------------ */
 /* Messaggio per Claude                                                 */
 /* ------------------------------------------------------------------ */
 
-export function buildPrompt({ place, result, skill, weights, evaluation, truthLabel, question, full }) {
+export function buildPrompt({ place, result, skill, weights, evaluation, truthLabel, question, full, extra = {} }) {
   const fmt = makeFormatters(result.tz);
   const L = [];
   const nModels = result.models.length;
   const names = result.models.map(shortName).join(', ');
-  L.push(`Sei un meteorologo esperto. Ti passo la previsione per ${place.name}${place.admin ? ` (${place.admin})` : ''}, ${place.elevation != null ? `${Math.round(place.elevation)} m s.l.m., ` : ''}preparata dalla mia app meteo: è la media pesata di ${nModels} modelli (${names}), con gli errori sistematici di ogni modello corretti confrontando le sue previsioni degli ultimi 35 giorni con i dati reali (${truthLabel || 'analisi ECMWF'}). I modelli che qui hanno sbagliato meno pesano di più.`);
+  L.push(`Sei un meteorologo esperto. Ti passo la previsione per ${place.name}${place.admin ? ` (${place.admin})` : ''}, ${place.elevation != null ? `${Math.round(place.elevation)} m s.l.m., ` : ''}preparata dalla mia app meteo: è la media pesata di ${nModels} modelli (${names}), con gli errori sistematici di ogni modello corretti confrontando le sue previsioni degli ultimi 35 giorni con i dati reali (${truthLabel || 'analisi ECMWF'}). I modelli che qui hanno sbagliato meno pesano di più.${extra.alerts ? ' Le allerte sono quelle ufficiali della Protezione Civile, non una previsione dell\'app.' : ''}`);
   L.push('');
   const q = (question || '').trim();
   if (q) L.push(`La mia domanda: «${q}»`);
@@ -146,6 +252,16 @@ export function buildPrompt({ place, result, skill, weights, evaluation, truthLa
   const nowH = result.hours.find((h) => h && h.t >= result.now - 1800) || null;
   if (nowH) {
     L.push(`ADESSO (${fmt.weekdayLong(nowH.t)} ${fmt.dayMonth(nowH.t)}, ore ${fmt.hm(result.now)}): ${f1(nowH.temp)}°, ${describe(nowH.code).toLowerCase()}, vento ${windText(nowH.wind, nowH.dir)}.`);
+  }
+  const al = extra.alerts;
+  if (al && !al.outside) {
+    L.push(`ALLERTE UFFICIALI (Protezione Civile, zona "${al.zone}", bollettino del ${al.date.split('-').reverse().join('/')} ore ${al.time}): oggi ${alertDayText(al.today)}; domani ${alertDayText(al.tomorrow)}.`);
+  }
+  const nc = extra.nowcast;
+  if (nc) {
+    L.push(full && nc.any
+      ? `PROSSIME 2 ORE (pioggia ogni 15 minuti, mm): ${nc.steps.map((s) => `${fmt.hm(s.t)} ${mm(s.mm)}`).join(', ')}.`
+      : `PROSSIME 2 ORE: ${nowcastText(nc, fmt).toLowerCase()}`);
   }
 
   const step = full ? 3 : 3;
@@ -171,8 +287,22 @@ export function buildPrompt({ place, result, skill, weights, evaluation, truthLa
     const rain = d.wetCount === 0 && d.pop < 0.15
       ? `niente pioggia (0 modelli su ${d.nRain})`
       : `prob. pioggia ${pct(d.pop)}, ${mm(d.precip)} mm (la prevedono ${d.wetCount} modelli su ${d.nRain})`;
-    L.push(`- ${label}: ${f0(d.tmin)}/${f0(d.tmax)}°${norm}${range}, ${describe(d.code).toLowerCase()}, ${rain}, vento max ${f0(d.windMax)}${isNum(d.gustMax) ? `, raffiche ${f0(d.gustMax)}` : ''} km/h; fiducia ${conf} (${why})`);
+    const frz = full && d.freezing ? `, zero termico ${meters(d.freezing.med)}` : '';
+    L.push(`- ${label}: ${f0(d.tmin)}/${f0(d.tmax)}°${norm}${range}, ${describe(d.code).toLowerCase()}, ${rain}, vento max ${f0(d.windMax)}${isNum(d.gustMax) ? `, raffiche ${f0(d.gustMax)}` : ''} km/h${frz}; fiducia ${conf} (${why})`);
   }
+  const ext = extra.extended || [];
+  if (ext.length) {
+    L.push(full
+      ? `TENDENZA FINO A 15 GIORNI (ensemble ECMWF di ${ext[0].members} simulazioni: mediana min/max e, tra parentesi, l'intervallo dove cade l'80% delle simulazioni; quota di simulazioni con almeno 1 mm di pioggia):`
+      : `TENDENZA FINO A 15 GIORNI (ensemble ECMWF: mediana min/max, quota di simulazioni con pioggia):`);
+    L.push(ext.map((d) => `${fmt.weekday(d.t + 43200)} ${fmt.dayNum(d.t + 43200)} ${f0(d.tmin.p50)}/${f0(d.tmax.p50)}°${full ? ` (max ${f0(d.tmax.p10)}…${f0(d.tmax.p90)})` : ''} pioggia ${pct(d.pop ?? 0)}`).join(' | '));
+  }
+  const outdoor = [];
+  if (extra.air?.aqi != null) outdoor.push(`aria ${airText(extra.air).toLowerCase()}`);
+  if (extra.air?.pollen?.length) outdoor.push(`pollini: ${pollenText(extra.air).toLowerCase()}`);
+  if (extra.sea) outdoor.push(`mare: ${seaText(extra.sea).toLowerCase()}`);
+  if (result.days[0]?.uv != null) outdoor.push(`UV massimo ${f0(result.days[0].uv)}`);
+  if (outdoor.length) L.push(`OGGI ALL'APERTO: ${outdoor.join('; ')}.`);
   L.push('');
 
   const ranked = Object.keys(weights.t1 || {})
@@ -190,7 +320,21 @@ export function buildPrompt({ place, result, skill, weights, evaluation, truthLa
   if (evaluation) {
     L.push(`Prova sugli ultimi ${evaluation.testDays} giorni: errore medio del metodo ${f1(evaluation.maeOurs)}°, media semplice dei modelli ${f1(evaluation.maeMean)}°, miglior modello singolo (${shortName(evaluation.best)}) ${f1(evaluation.maeBest)}°.`);
   }
+  const ds = extra.diary;
+  if (ds?.n) {
+    L.push(`Diario dell'app (previsioni salvate il giorno prima e confrontate con i dati veri, ultimi ${ds.n} giorni): massima sbagliata in media di ${f1(ds.maeMax)}°, minima di ${f1(ds.maeMin)}°${ds.rainN ? `, pioggia sì/no indovinata ${ds.rainOk} volte su ${ds.rainN}` : ''}.`);
+  }
   return L.join('\n');
+}
+
+/* ------------------------------------------------------------------ */
+/* Diario                                                               */
+/* ------------------------------------------------------------------ */
+
+export function diarySummaryText(s, sourceLabel) {
+  if (!s?.n) return '';
+  const rain = s.rainN ? ` La pioggia sì o no è stata giusta ${s.rainOk} ${s.rainOk === 1 ? 'volta' : 'volte'} su ${s.rainN}.` : '';
+  return `In ${s.n} ${s.n === 1 ? 'giorno' : 'giorni'} la massima prevista il giorno prima ha sbagliato in media di ${f1(s.maeMax)}°, la minima di ${f1(s.maeMin)}°.${rain} Dati veri: ${sourceLabel}.`;
 }
 
 export function claudeUrl(prompt) {

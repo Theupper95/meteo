@@ -1,0 +1,75 @@
+# Costruisce l'app Android (un APK che contiene il sito) e la pubblica tra le Release.
+# Link fisso per scaricarla: https://github.com/Theupper95/meteo/releases/latest/download/isobara.apk
+name: App Android
+
+on:
+  push:
+    branches: [main, v3]
+    paths-ignore: ['README.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Java 17 e Gradle 8.10.2
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          curl -sSLo "$RUNNER_TEMP/gradle.zip" https://services.gradle.org/distributions/gradle-8.10.2-bin.zip
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.10.2/bin" >> "$GITHUB_PATH"
+
+      - name: SDK Android
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-35" "build-tools;34.0.0" > /dev/null
+
+      - name: Copia l'app web dentro l'APK
+        run: |
+          mkdir -p android/app/src/main/assets/www
+          cp -r index.html manifest.webmanifest css js fonts icons vendor android/app/src/main/assets/www/
+          echo "VERSION=$(grep -oP "const VERSION = '\K[0-9.]+" js/main.js)" >> "$GITHUB_ENV"
+
+      - name: Compila
+        run: |
+          set -o pipefail
+          if ! gradle -p android assembleRelease --no-daemon --stacktrace \
+               -PappVersion="$VERSION" -PbuildNumber="$GITHUB_RUN_NUMBER" 2>&1 | tee build.log; then
+            # gli errori diventano annotazioni, leggibili anche senza scaricare il log
+            grep -E "error:|rror |FAILURE|What went wrong|Could not|Execution failed|> [A-Z]" build.log | head -n 30 \
+              | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > errs.txt || true
+            echo "::error title=Compilazione non riuscita::$(cat errs.txt)"
+            tail -n 25 build.log | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > tail.txt
+            echo "::error title=Ultime righe::$(cat tail.txt)"
+            exit 1
+          fi
+          cp android/app/build/outputs/apk/release/app-release.apk isobara.apk
+          CERT=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs isobara.apk | grep -m1 "SHA-256" | sed 's/.*: //')
+          echo "::notice title=APK pronto::Isobara $VERSION (build $GITHUB_RUN_NUMBER), $(du -k isobara.apk | cut -f1) kB, firma $CERT"
+
+      - name: Pubblica tra le Release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$VERSION"
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --latest --title "Isobara $VERSION" --notes-file - <<NOTES
+          Per installarla sul telefono Android: apri questa pagina dal telefono, tocca **isobara.apk**, poi apri il file scaricato e conferma l'installazione (la prima volta Android chiede di consentire le app da questa fonte).
+
+          Le versioni nuove si installano sopra la precedente, senza perdere luoghi e diario.
+          NOTES
+          fi
+          gh release upload "$TAG" isobara.apk --clobber
+          echo "::notice title=Pubblicata::https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/isobara.apk"

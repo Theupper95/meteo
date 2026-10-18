@@ -1,0 +1,6 @@
+# file generati dalla compilazione dell'app Android
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/
+android/local.properties

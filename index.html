@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Isobara</title>
-  <meta name="description" content="Il meteo di sette modelli, corretto con gli errori dell'ultimo mese nel tuo luogo, con la spiegazione di Claude.">
+  <meta name="description" content="Il meteo di sette modelli, corretto con gli errori dell'ultimo mese misurati dalle stazioni vicine, con radar, allerte ufficiali e la spiegazione di Claude.">
   <meta name="theme-color" content="#0b1020" id="themeColor">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
@@ -22,7 +22,10 @@
       <button class="place" id="placeBtn" type="button" aria-haspopup="dialog">
         <span id="placeName">Isobara</span><span class="chev" data-icon="chevron"></span>
       </button>
-      <button class="round" id="refreshBtn" type="button" aria-label="Aggiorna la previsione" hidden><span data-icon="refresh"></span></button>
+      <div class="top-actions">
+        <button class="round" id="radarBtn" type="button" aria-label="Radar della pioggia" aria-haspopup="dialog" hidden><span data-icon="radar"></span></button>
+        <button class="round" id="refreshBtn" type="button" aria-label="Aggiorna la previsione" hidden><span data-icon="refresh"></span></button>
+      </div>
     </header>
     <p class="notice" id="notice" role="status" hidden></p>
     <main id="main"></main>
@@ -33,6 +36,8 @@
   <dialog class="sheet" id="sheet-places" aria-labelledby="t-places"></dialog>
   <dialog class="sheet" id="sheet-claude" aria-labelledby="t-claude"></dialog>
   <dialog class="sheet" id="sheet-trust" aria-labelledby="t-trust"></dialog>
+  <dialog class="sheet" id="sheet-alerts" aria-labelledby="t-alerts"></dialog>
+  <dialog class="sheet" id="sheet-radar" aria-labelledby="t-radar"></dialog>
 
   <noscript><p style="padding:20px;color:#fff">Per usare Isobara serve JavaScript attivo.</p></noscript>
 </body>

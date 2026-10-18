@@ -63,12 +63,15 @@ export function parseBestMatch(json) {
   if (!json) return null;
   const h = json.hourly || {};
   const d = json.daily || {};
+  const q = json.minutely_15 || {};
   return {
     times: h.time || [],
     pop: h.precipitation_probability || null,
     apparent: h.apparent_temperature || null,
     temp: h.temperature_2m || null,
+    freezing: h.freezing_level_height || null,
     current: json.current || null,
+    minutely: q.time?.length ? { time: q.time, precip: q.precipitation || [] } : null,
     daily: {
       time: d.time || [],
       sunrise: d.sunrise || [],
@@ -79,10 +82,65 @@ export function parseBestMatch(json) {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Osservazioni delle stazioni meteo (METAR)                            */
+/* ------------------------------------------------------------------ */
+
+// Fenomeni con precipitazione nel bollettino METAR (non conta "VC", cioè nei dintorni).
+const WET_WX = /(^|\s)[+-]?(RE)?(SH|TS|FZ)?(DZ|RA|SN|SG|PL|GR|GS|UP)/;
+
+// CSV dell'Iowa Environmental Mesonet: station,valid,tmpc,sknt,wxcodes (orari UTC).
+export function parseStationCSV(text) {
+  const out = [];
+  const lines = String(text || '').split('\n');
+  const head = (lines[0] || '').split(',');
+  const col = (name) => head.indexOf(name);
+  const cV = col('valid'), cT = col('tmpc'), cW = col('sknt'), cX = col('wxcodes');
+  if (cV < 0) return out;
+  for (let k = 1; k < lines.length; k++) {
+    const c = lines[k].split(',');
+    if (c.length < head.length) continue;
+    const t = Date.parse(`${c[cV].replace(' ', 'T')}:00Z`) / 1000;
+    if (!isNum(t)) continue;
+    const num = (i) => (i >= 0 && c[i] !== 'M' && c[i] !== '' ? Number(c[i]) : null);
+    const wx = cX >= 0 && c[cX] !== 'M' ? c[cX] : '';
+    const temp = num(cT);
+    const kt = num(cW);
+    out.push({
+      t,
+      temp: isNum(temp) && temp > -60 && temp < 60 ? temp : null,
+      wind: isNum(kt) && kt >= 0 && kt < 150 ? kt * 1.852 : null,
+      wx,
+      wet: WET_WX.test(wx),
+    });
+  }
+  return out;
+}
+
+// Valori allineati all'ora piena (entro 15 minuti): il METAR delle 12:50 vale per le 13:00.
+export function stationHourly(obs) {
+  const best = new Map();
+  for (const o of obs || []) {
+    const h = Math.round(o.t / 3600) * 3600;
+    const dt = Math.abs(o.t - h);
+    if (dt > 900) continue;
+    const cur = best.get(h);
+    if (!cur || dt < cur.dt) best.set(h, { dt, temp: o.temp, wind: o.wind });
+  }
+  const temp = new Map(), wind = new Map();
+  for (const [h, v] of best) {
+    if (isNum(v.temp)) temp.set(h, v.temp);
+    if (isNum(v.wind)) wind.set(h, v.wind);
+  }
+  return { temp, wind };
+}
+
 const ANALYSIS = 'ecmwf_ifs_analysis_long_window';
 
-// prev: risposta della Previous Runs API; arch: risposta dell'archivio (verità).
-export function parseVerification(prev, prevModels, arch, archModels) {
+// prev: risposta della Previous Runs API; arch: risposta dell'archivio.
+// station (facoltativa): {temp: Map, wind: Map, label} con i valori orari misurati.
+// La verità è la stazione quando ci sono abbastanza misure, altrimenti l'analisi ECMWF.
+export function parseVerification(prev, prevModels, arch, archModels, station = null) {
   const h = prev.hourly || {};
   const times = h.time || [];
   const single = prevModels.length === 1;
@@ -104,16 +162,6 @@ export function parseVerification(prev, prevModels, arch, archModels) {
   // L'analisi ECMWF esiste solo ogni 6 ore: teniamo solo quegli istanti.
   const sixHourly = (arr) => (arr ? arr.map((v, i) => (at[i] % SIX_H === 0 ? v : null)) : null);
 
-  let tT = sixHourly(get('temperature_2m', ANALYSIS));
-  let tLabel = 'analisi ECMWF';
-  if (count(tT) < 20) {
-    tT = sixHourly(get('temperature_2m', 'era5'));
-    tLabel = 'rianalisi ERA5';
-  }
-  let tW = sixHourly(get('wind_speed_10m', ANALYSIS));
-  if (count(tW) < 20) tW = sixHourly(get('wind_speed_10m', 'era5'));
-  const tP = get('precipitation', 'era5');
-
   const pos = new Map(at.map((t, i) => [t, i]));
   const align = (arr) =>
     times.map((t) => {
@@ -121,11 +169,35 @@ export function parseVerification(prev, prevModels, arch, archModels) {
       const i = pos.get(t);
       return i == null ? null : arr[i];
     });
+  const fromStation = (m) => (m ? times.map((t) => (m.has(t) ? m.get(t) : null)) : null);
+
+  // Almeno 10 giorni di misure orarie: allora la stazione è la verità, con 8 fasce orarie.
+  let tT = fromStation(station?.temp);
+  let tLabel = station?.label || '';
+  let tSource = 'station';
+  let nSlots = 8;
+  if (count(tT) < 240) {
+    nSlots = 4;
+    tT = align(sixHourly(get('temperature_2m', ANALYSIS)));
+    tLabel = 'analisi ECMWF';
+    tSource = 'analysis';
+    if (count(tT) < 20) {
+      tT = align(sixHourly(get('temperature_2m', 'era5')));
+      tLabel = 'rianalisi ERA5';
+      tSource = 'era5';
+    }
+  }
+  let tW = fromStation(station?.wind);
+  if (count(tW) < 240) {
+    tW = align(sixHourly(get('wind_speed_10m', ANALYSIS)));
+    if (count(tW) < 20) tW = align(sixHourly(get('wind_speed_10m', 'era5')));
+  }
+  const tP = align(get('precipitation', 'era5'));
 
   return {
     times,
     fc,
-    truth: { t: align(tT), w: align(tW), p: align(tP), tLabel, pLabel: 'rianalisi ERA5' },
+    truth: { t: tT, w: tW, p: tP, tLabel, tSource, nSlots, pLabel: 'rianalisi ERA5' },
   };
 }
 
@@ -133,35 +205,44 @@ export function parseVerification(prev, prevModels, arch, archModels) {
 /* Verifica: quanto ha sbagliato ogni modello                          */
 /* ------------------------------------------------------------------ */
 
-const slotOf = (t) => Math.floor(new Date(t * 1000).getUTCHours() / 6) % 4;
+// Fascia oraria UTC più vicina. Con 4 fasce sono le ore 00, 06, 12, 18 (l'analisi ECMWF);
+// con 8 fasce, ogni 3 ore (le misure orarie di una stazione).
+const slotOf = (t, nSlots = 4) => Math.round(((((t % DAY) + DAY) % DAY) / 3600) / (24 / nSlots)) % nSlots;
 
-// Errori di temperatura (previsione − realtà) con la fascia oraria UTC (0, 6, 12, 18).
+// Errori di temperatura (previsione − realtà) con la fascia oraria, il giorno e il blocco di 6 ore.
 export function tempPairs(ver, model, key, keep) {
   const f = ver.fc[model]?.[key];
   if (!f) return [];
+  const nSlots = ver.truth.nSlots || 4;
   const out = [];
   for (let i = 0; i < ver.times.length; i++) {
     if (keep && !keep(i)) continue;
     const o = ver.truth.t[i];
     const x = f[i];
-    if (isNum(o) && isNum(x)) out.push({ i, e: x - o, slot: slotOf(ver.times[i]) });
+    const t = ver.times[i];
+    if (isNum(o) && isNum(x)) out.push({ i, e: x - o, slot: slotOf(t, nSlots), d: Math.floor(t / DAY), blk: Math.floor(t / SIX_H) });
   }
   return out;
 }
 
 // Errore sistematico per fascia oraria, "ristretto" verso la media quando i dati sono pochi.
-export function tempStats(pairs) {
+// Le misure di ore vicine si somigliano: per decidere quanto fidarsi si contano i blocchi
+// di 6 ore (nEff) e, per ogni fascia, i giorni diversi, non le singole ore.
+export function tempStats(pairs, nSlots = 4) {
   const n = pairs.length;
   if (n < 8) return null;
+  const nEff = new Set(pairs.map((p) => p.blk ?? p.i)).size;
   const meanE = avg(pairs.map((p) => p.e));
-  const overall = (meanE * n) / (n + 12);
-  const slotBias = [0, 1, 2, 3].map((s) => {
+  const overall = (meanE * nEff) / (nEff + 12);
+  const slotBias = Array.from({ length: nSlots }, (_, s) => {
     const ps = pairs.filter((p) => p.slot === s);
+    const nS = new Set(ps.map((p) => p.d ?? p.i)).size;
     const es = ps.length ? avg(ps.map((p) => p.e)) : overall;
-    return (ps.length * es + 8 * overall) / (ps.length + 8);
+    return (nS * es + 8 * overall) / (nS + 8);
   });
   return {
     n,
+    nEff,
     bias: meanE,
     slotBias,
     maeRaw: avg(pairs.map((p) => Math.abs(p.e))),
@@ -172,12 +253,13 @@ export function tempStats(pairs) {
 export function computeSkill(ver, models) {
   const skill = {};
   const { times, truth } = ver;
+  const nSlots = truth.nSlots || 4;
   for (const m of models) {
     const f = ver.fc[m];
     if (!f) continue;
     const s = {};
     for (const key of ['t1', 't4']) {
-      const st = tempStats(tempPairs(ver, m, key));
+      const st = tempStats(tempPairs(ver, m, key), nSlots);
       if (st) s[key] = st;
     }
 
@@ -185,18 +267,22 @@ export function computeSkill(ver, models) {
     if (f.w1) {
       const xs = [];
       const os = [];
+      const blocks = new Set();
       for (let i = 0; i < times.length; i++) {
         if (isNum(f.w1[i]) && isNum(truth.w[i])) {
           xs.push(f.w1[i]);
           os.push(truth.w[i]);
+          blocks.add(Math.floor(times[i] / SIX_H));
         }
       }
       const n = xs.length;
+      const nEff = blocks.size;
       if (n >= 8) {
         const raw = sum(xs) > 1 ? sum(os) / sum(xs) : 1;
-        const factor = clamp(1 + ((raw - 1) * n) / (n + 20), 0.7, 1.4);
+        const factor = clamp(1 + ((raw - 1) * nEff) / (nEff + 20), 0.7, 1.4);
         s.wind = {
           n,
+          nEff,
           factor,
           bias: avg(xs.map((x, k) => x - os[k])),
           maeRaw: avg(xs.map((x, k) => Math.abs(x - os[k]))),
@@ -270,9 +356,10 @@ export function makeWeights(models, errOf, nOf, { k = 40 } = {}) {
 }
 
 export function computeWeights(skill, models) {
-  const t1 = makeWeights(models, (m) => skill[m]?.t1?.maeCorr, (m) => skill[m]?.t1?.n);
-  const t4 = makeWeights(models, (m) => skill[m]?.t4?.maeCorr, (m) => skill[m]?.t4?.n);
-  const wind = makeWeights(models, (m) => skill[m]?.wind?.maeCorr, (m) => skill[m]?.wind?.n);
+  const nOf = (st) => st?.nEff ?? st?.n;
+  const t1 = makeWeights(models, (m) => skill[m]?.t1?.maeCorr, (m) => nOf(skill[m]?.t1));
+  const t4 = makeWeights(models, (m) => skill[m]?.t4?.maeCorr, (m) => nOf(skill[m]?.t4));
+  const wind = makeWeights(models, (m) => skill[m]?.wind?.maeCorr, (m) => nOf(skill[m]?.wind));
   const rain = makeWeights(
     models,
     (m) => (skill[m]?.rain ? skill[m].rain.mae + 0.5 : null),
@@ -295,14 +382,15 @@ export function evaluateMethod(ver, models) {
   const split = days[Math.floor(days.length / 2)];
   const isTrain = (i) => Math.floor(ver.times[i] / DAY) < split;
 
+  const nSlots = ver.truth.nSlots || 4;
   const train = {};
   for (const m of models) {
-    const st = tempStats(tempPairs(ver, m, 't1', isTrain));
+    const st = tempStats(tempPairs(ver, m, 't1', isTrain), nSlots);
     if (st) train[m] = st;
   }
   const trained = Object.keys(train);
   if (trained.length < 2) return null;
-  const w = makeWeights(trained, (m) => train[m].maeCorr, (m) => train[m].n);
+  const w = makeWeights(trained, (m) => train[m].maeCorr, (m) => train[m].nEff ?? train[m].n);
   const best = trained.slice().sort((a, b) => train[a].maeRaw - train[b].maeRaw)[0];
 
   const eMean = [], eBest = [], eOurs = [];
@@ -314,7 +402,7 @@ export function evaluateMethod(ver, models) {
     const vals = avail.map((m) => ver.fc[m].t1[i]);
     eMean.push(Math.abs(avg(vals) - o));
     eBest.push(Math.abs(ver.fc[best].t1[i] - o));
-    const slot = slotOf(ver.times[i]);
+    const slot = slotOf(ver.times[i], nSlots);
     const ws = normalize(avail.map((m) => w[m]));
     const ours = sum(avail.map((m, j) => ws[j] * (ver.fc[m].t1[i] - train[m].slotBias[slot])));
     eOurs.push(Math.abs(ours - o));
@@ -335,11 +423,13 @@ export function evaluateMethod(ver, models) {
 /* Consenso ora per ora e giorno per giorno                             */
 /* ------------------------------------------------------------------ */
 
-function biasAt(st, utcHour) {
-  if (!st) return null;
-  const x = utcHour / 6;
-  const s0 = Math.floor(x) % 4;
-  const s1 = (s0 + 1) % 4;
+// Errore sistematico all'ora UTC data, interpolato tra le fasce (4 o 8 nel giorno).
+export function biasAt(st, utcHour) {
+  if (!st?.slotBias?.length) return null;
+  const n = st.slotBias.length;
+  const x = (utcHour / 24) * n;
+  const s0 = Math.floor(x) % n;
+  const s1 = (s0 + 1) % n;
   const fr = x - Math.floor(x);
   return st.slotBias[s0] * (1 - fr) + st.slotBias[s1] * fr;
 }
@@ -447,6 +537,7 @@ export function buildForecast({ fc, bm, skill, weights, now, normals }) {
   const bmPop = bm ? alignTo(times, bm.times, bm.pop) : null;
   const bmApp = bm ? alignTo(times, bm.times, bm.apparent) : null;
   const bmTemp = bm ? alignTo(times, bm.times, bm.temp) : null;
+  const bmFrz = bm ? alignTo(times, bm.times, bm.freezing) : null;
 
   const hours = times.map((t, i) => {
     const lead = (t - now) / 3600;
@@ -525,6 +616,7 @@ export function buildForecast({ fc, bm, skill, weights, now, normals }) {
       n: act.length, precip, pop, popModels, popEns, wind, gust, dir, cloud, rh,
       // temperatura percepita: quella del modello "best match", spostata sulla nostra temperatura
       apparent: bmApp && isNum(bmApp[i]) ? bmApp[i] + (isNum(bmTemp?.[i]) ? temp - bmTemp[i] : 0) : null,
+      frz: bmFrz && isNum(bmFrz[i]) ? bmFrz[i] : null,
       fr, code: wmo, hour: tools.hour(t), day: tools.dayKey(t),
     };
   });
@@ -601,6 +693,13 @@ export function buildForecast({ fc, bm, skill, weights, now, normals }) {
     const clouds = dayHours.filter((h) => isNum(h.cloud)).map((h) => h.cloud);
     const cloudDay = clouds.length ? avg(clouds) : null;
 
+    // Zero termico di giorno e, se sono previste precipitazioni, la quota della neve
+    // (di solito 300 m circa sotto lo zero termico).
+    const frz = dayHours.filter((h) => isNum(h.frz)).map((h) => h.frz);
+    const freezing = frz.length ? { min: Math.min(...frz), max: Math.max(...frz), med: median(frz) } : null;
+    const wetFrz = hs.filter((h) => isNum(h.frz) && h.precip >= 0.1 && h.pop >= 0.3).map((h) => h.frz);
+    const snowLine = wetFrz.length ? Math.max(0, Math.round((Math.min(...wetFrz) - 300) / 100) * 100) : null;
+
     // Fenomeno prevalente della giornata
     let code;
     const anyThunder = hs.some((h) => h.code === 95);
@@ -652,11 +751,118 @@ export function buildForecast({ fc, bm, skill, weights, now, normals }) {
       err: expectedError(skill, weights, dayIndex + 0.5),
       per, nModels: pm.length,
       sunrise: extra.sunrise ?? null, sunset: extra.sunset ?? null, uv: extra.uv ?? null,
+      freezing, snowLine,
       normal,
     };
   }).filter(Boolean);
 
   return { hours, days, models, tz: fc.tz, now };
+}
+
+function median(a) {
+  if (!a.length) return null;
+  const s = [...a].sort((x, y) => x - y);
+  return quantile(s, 0.5);
+}
+
+// Quantile di un array già ordinato, con interpolazione lineare.
+function quantile(sorted, p) {
+  if (!sorted.length) return null;
+  const x = (sorted.length - 1) * p;
+  const lo = Math.floor(x);
+  const hi = Math.ceil(x);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (x - lo);
+}
+
+/* ------------------------------------------------------------------ */
+/* Tendenza fino a 15 giorni: l'ensemble ECMWF (51 simulazioni)         */
+/* ------------------------------------------------------------------ */
+
+// Oltre la settimana un solo valore sarebbe una finta precisione: si mostrano gli intervalli
+// in cui cadono le simulazioni, corretti con l'errore sistematico del modello ECMWF qui.
+export function buildExtended(ens, { tz, skill = {}, after = null } = {}) {
+  const d = ens?.daily;
+  if (!d?.time?.length) return [];
+  const tools = makeTimeTools(tz || ens.timezone || 'UTC');
+  const keys = Object.keys(d);
+  const series = (base) => keys.filter((k) => k === base || k.startsWith(`${base}_member`)).map((k) => d[k]);
+  const TX = series('temperature_2m_max');
+  const TN = series('temperature_2m_min');
+  const PR = series('precipitation_sum');
+  const st = skill.ecmwf_ifs?.t4 || skill.ecmwf_ifs?.t1 || null;
+  const bx = st ? biasAt(st, 13) : 0;
+  const bn = st ? biasAt(st, 4) : 0;
+  const qs = (s) => ({ p10: quantile(s, 0.1), p25: quantile(s, 0.25), p50: quantile(s, 0.5), p75: quantile(s, 0.75), p90: quantile(s, 0.9) });
+  const out = [];
+  d.time.forEach((t, j) => {
+    const key = tools.dayKey(t + 43200);
+    if (after && key <= after) return;
+    const tx = TX.map((a) => a[j]).filter(isNum).map((v) => v - bx).sort((a, b) => a - b);
+    const tn = TN.map((a) => a[j]).filter(isNum).map((v) => v - bn).sort((a, b) => a - b);
+    const pr = PR.map((a) => a[j]).filter(isNum).sort((a, b) => a - b);
+    if (tx.length < 10 || tn.length < 10) return;
+    const wet = pr.filter((v) => v >= 1).length;
+    out.push({
+      key, t,
+      tmax: qs(tx), tmin: qs(tn),
+      pop: pr.length ? wet / pr.length : null,
+      wet, members: pr.length || tx.length,
+      precip: pr.length ? quantile(pr, 0.5) : null,
+      corrected: !!st,
+    });
+  });
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Com'è andata davvero, giorno per giorno (per il diario)              */
+/* ------------------------------------------------------------------ */
+
+// Massima, minima e pioggia di ogni giorno locale. Dalla stazione quando c'è
+// (pioggia dai fenomeni del METAR), altrimenti dalla rianalisi ERA5 (5 giorni di ritardo).
+export function dailyTruth({ obs = null, arch = null, archModels = [], tz }) {
+  const tools = makeTimeTools(tz);
+  const out = {};
+  const hasWx = !!obs?.some((o) => o.wx);
+  if (obs?.length) {
+    const byDay = new Map();
+    for (const o of obs) {
+      const k = tools.dayKey(o.t);
+      if (!byDay.has(k)) byDay.set(k, { temps: [], hours: new Set(), wet: 0 });
+      const r = byDay.get(k);
+      if (isNum(o.temp)) { r.temps.push(o.temp); r.hours.add(tools.hour(o.t)); }
+      if (o.wet) r.wet++;
+    }
+    for (const [k, r] of byDay) {
+      if (r.hours.size < 18) continue;
+      out[k] = { tmax: Math.max(...r.temps), tmin: Math.min(...r.temps), wet: hasWx ? r.wet >= 2 : null, src: 'station' };
+    }
+  }
+  const ah = arch?.hourly;
+  if (ah?.time?.length) {
+    const single = archModels.length === 1;
+    const T = archModels.includes('era5') ? pick(ah, 'temperature_2m', 'era5', single) : null;
+    const P = archModels.includes('era5') ? pick(ah, 'precipitation', 'era5', single) : null;
+    const byDay = new Map();
+    ah.time.forEach((t, i) => {
+      const k = tools.dayKey(t);
+      if (!byDay.has(k)) byDay.set(k, { temps: [], rain: 0, nRain: 0 });
+      const r = byDay.get(k);
+      if (isNum(T?.[i])) r.temps.push(T[i]);
+      if (isNum(P?.[i])) { r.rain += P[i]; r.nRain++; }
+    });
+    for (const [k, r] of byDay) {
+      const rainKnown = r.nRain >= 23;
+      if (out[k]) {
+        // stazione senza osservazione dei fenomeni: la pioggia viene da ERA5
+        if (out[k].wet == null && rainKnown) out[k].wet = r.rain >= 1;
+        continue;
+      }
+      if (r.temps.length < 23) continue;
+      out[k] = { tmax: Math.max(...r.temps), tmin: Math.min(...r.temps), wet: rainKnown ? r.rain >= 1 : null, src: 'era5' };
+    }
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
