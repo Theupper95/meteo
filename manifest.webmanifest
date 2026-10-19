@@ -1,7 +1,7 @@
 {
   "name": "Isobara",
   "short_name": "Isobara",
-  "description": "Il meteo di sette modelli, corretto con gli errori dell'ultimo mese nel tuo luogo, con la spiegazione di Claude.",
+  "description": "Il meteo di sette modelli, corretto con gli errori dell'ultimo mese nel tuo luogo, con radar e allerte ufficiali.",
   "lang": "it",
   "dir": "ltr",
   "id": "./",

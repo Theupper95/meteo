@@ -82,8 +82,10 @@ a { color: inherit; }
   z-index: 2;
   max-width: 620px;
   margin: 0 auto;
-  padding-bottom: calc(var(--sab) + 112px);
+  padding-bottom: calc(var(--sab) + 40px);
 }
+/* spazio per il pulsante di Claude, quando c'è */
+.with-ask .app { padding-bottom: calc(var(--sab) + 112px); }
 
 /* ---------- Testata ---------- */
 .top {

@@ -25,7 +25,9 @@ import { getAlerts, OFFICIAL_URL, RISKS, LEVEL_WORDS } from './alerts.js';
 import { pickStation } from './stations.js';
 import { loadComuni, searchIndex, mergeResults, pickCentre } from './search.js';
 
-const VERSION = '3.1.3';
+const VERSION = '3.1.4';
+// Integrazione con Claude (pulsante "Chiedi a Claude"): spenta per ora. Con true torna tutto com'era.
+const CLAUDE = false;
 const VER_VERSION = 3;
 const FC_FRESH = 20 * 60e3;
 const VER_FRESH = 12 * 3600e3;
@@ -693,7 +695,8 @@ function render() {
   refresh.classList.toggle('spin', state.loading);
   refresh.disabled = state.loading;
   $('#radarBtn').hidden = !place;
-  $('#askBtn').hidden = !(place && v);
+  $('#askBtn').hidden = !(CLAUDE && place && v);
+  document.documentElement.classList.toggle('with-ask', CLAUDE);
 
   const notice = $('#notice');
   let msg = '';
@@ -1054,6 +1057,7 @@ function renderSheet(name) {
 }
 
 function openSheet(name) {
+  if (name === 'claude' && !CLAUDE) return;
   if (openName && openName !== name) closeSheet({ silent: true });
   const d = $(`#sheet-${name}`);
   renderSheet(name);
@@ -1097,7 +1101,7 @@ function placesSheet() {
     </details>
     <details class="more"><summary>Dati e privacy</summary>
       <p>Previsioni di Open-Meteo.com (CC BY 4.0). Clima 1991–2020 e verifica della pioggia dalla rianalisi ERA5 di Copernicus. Misure delle stazioni dai bollettini METAR, tramite l'Iowa Environmental Mesonet. Allerte dal bollettino di criticità della Protezione Civile. Radar di RainViewer; coste e confini di Natural Earth, regioni dell'ISTAT (openpolis). Elenco dei comuni e abitanti dell'ISTAT, per la ricerca. Nomi dei luoghi dal GPS: OpenStreetMap.</p>
-      <p>I tuoi luoghi e il diario restano su questo telefono. Claude riceve la previsione solo quando premi il pulsante. Isobara ${VERSION}${inApp ? ', app Android' : ''}.</p>
+      <p>I tuoi luoghi e il diario restano su questo telefono.${CLAUDE ? ' Claude riceve la previsione solo quando premi il pulsante.' : ''} Isobara ${VERSION}${inApp ? ', app Android' : ''}.</p>
       ${inApp ? `<a class="pill glass wide" href="${APK_URL}" target="_blank" rel="noopener">${UI.download}Scarica l'ultima versione</a>` : ''}
     </details>`);
 }
@@ -1378,7 +1382,7 @@ document.addEventListener('click', (e) => {
   }
   if (t.id === 'placeBtn') { openSheet('places'); return; }
   if (t.id === 'refreshBtn') { load({ force: true }); return; }
-  if (t.id === 'askBtn') { openSheet('claude'); return; }
+  if (t.id === 'askBtn') { if (CLAUDE) openSheet('claude'); return; }
   if (t.id === 'radarBtn') { openSheet('radar'); return; }
   if (t.dataset.open) { openSheet(t.dataset.open); return; }
   if (t.dataset.pick != null) { selectPlace(QUICK[Number(t.dataset.pick)]); return; }

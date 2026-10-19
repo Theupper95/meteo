@@ -3,7 +3,6 @@
 App meteo per uso personale, per il telefono Android. Mette insieme più modelli meteorologici,
 misura quanto ha sbagliato ognuno nel luogo scelto durante l'ultimo mese confrontandolo con una
 stazione meteo vera, corregge gli errori sistematici e dà più peso ai modelli più affidabili.
-Con un tocco passa la previsione a Claude, che la spiega in parole semplici.
 
 ## Installarla sul telefono
 
@@ -67,10 +66,11 @@ pagina Releases di questo repository.
 
 ## Claude
 
-Il pulsante *Chiedi a Claude* prepara un messaggio con la previsione, l'accordo tra i modelli,
-l'affidabilità di ognuno, le allerte, aria e mare, la tendenza e il diario. **Apri in Claude** apre
-l'app Claude (o claude.ai) con il messaggio già scritto; **Condividi** usa il menu di Android;
-**Copia** lo mette negli appunti.
+L'integrazione con Claude è **spenta per ora**: il pulsante non compare. Il codice è rimasto e si
+riaccende mettendo `CLAUDE = true` in `js/main.js`. Quando è accesa, il pulsante *Chiedi a Claude*
+prepara un messaggio con la previsione, l'accordo tra i modelli, l'affidabilità di ognuno, le
+allerte, aria e mare, la tendenza e il diario. **Apri in Claude** apre l'app Claude (o claude.ai)
+con il messaggio già scritto; **Condividi** usa il menu di Android; **Copia** lo mette negli appunti.
 
 ## Dati e licenze
 
