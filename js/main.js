@@ -15,7 +15,7 @@ import {
   f0, f1, deg, pct, mm, signed, describe, rose, windText, makeFormatters,
   CONF_LABEL, reasonText, nextHoursText, buildPrompt, claudeUrl,
   nowcastText, alertHeadline, alertDayText, alertMax, airText, seaText, freezingText, uvText, diarySummaryText,
-  cm, amount, dayOf, dayLabel,
+  cm, amount, dayOf, dayLabel, modelsNote,
 } from './text.js';
 import { weatherIcon, UI } from './icons.js';
 import { hourStrip, stripHours, tempColor, showAmount } from './chart.js';
@@ -25,7 +25,7 @@ import { getAlerts, OFFICIAL_URL, RISKS, LEVEL_WORDS } from './alerts.js';
 import { pickStation } from './stations.js';
 import { loadComuni, searchIndex, mergeResults, pickCentre } from './search.js';
 
-const VERSION = '3.1.2';
+const VERSION = '3.1.3';
 const VER_VERSION = 3;
 const FC_FRESH = 20 * 60e3;
 const VER_FRESH = 12 * 3600e3;
@@ -901,6 +901,9 @@ function dayText(d, v, fmt) {
     else if ((d.snow || 0) >= 0.5) out.push(`Pioggia e neve ${pct(d.pop)}: circa ${mm(rainPart)} mm di pioggia e ${cm(d.snow)} cm di neve, secondo ${d.wetCount} modelli su ${d.nRain}.`);
     else out.push(`Pioggia ${pct(d.pop)}, circa ${mm(d.precip)} mm: la prevedono ${d.wetCount} modelli su ${d.nRain}.`);
   }
+  // quanti dei modelli scelti arrivano a questo giorno, e perché gli altri no
+  const note = modelsNote(d, state.models, v.result.models, fmt);
+  if (note) out.push(note);
   const r = rose(d.dirDom);
   if (isNum(d.windMax)) out.push(`Vento fino a ${f0(d.windMax)} km/h${r ? ` da ${r[0]} (${r[1]})` : ''}${isNum(d.gustMax) ? `, raffiche ${f0(d.gustMax)}` : ''}.`);
   if (d.normal && isNum(d.normal.tmax)) {

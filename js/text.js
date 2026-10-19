@@ -1,7 +1,7 @@
 // Testi in italiano: descrizioni, numeri, frasi di sintesi e il messaggio per Claude.
 
 import { isNum } from './engine.js';
-import { shortName } from './models.js';
+import { shortName, MODEL_BY_ID } from './models.js';
 
 const nf1 = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const MINUS = '−';
@@ -85,6 +85,38 @@ export function dayLabel(day, fmt) {
   if (day.dayIndex === 1) return 'Domani';
   const w = fmt.weekday(day.t + 12 * 3600);
   return w.charAt(0).toUpperCase() + w.slice(1) + ' ' + fmt.dayNum(day.t + 12 * 3600);
+}
+
+// "A", "A e B", "A, B e C"
+export const andList = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}`);
+
+// Perché un giorno ha meno modelli di quelli scelti: i modelli locali si fermano dopo pochi giorni
+// e alcuni coprono solo la loro zona. Senza questa riga "6 modelli su 6" sembrerebbe un errore.
+export function modelsNote(d, chosen, withData, fmt) {
+  const present = Object.keys(d.per || {});
+  const missing = (chosen || []).filter((m) => !d.per?.[m]);
+  if (!missing.length) return '';
+  const known = new Set(withData || []);
+  const outside = missing.filter((m) => !known.has(m));
+  const short = missing.filter((m) => known.has(m));
+  const w = fmt.weekdayLong(d.t + 43200);
+  const when = d.dayIndex === 0 ? 'Oggi' : d.dayIndex === 1 ? 'Domani' : w.charAt(0).toUpperCase() + w.slice(1);
+  const verb = (list, one, many) => (list.length > 1 ? many : one);
+  const parts = [];
+  if (short.length && d.dayIndex === 0) {
+    parts.push(`${andList(short.map(shortName))} non ${verb(short, 'ha', 'hanno')} dati per tutta la giornata`);
+  } else if (short.length) {
+    const groups = new Map();
+    for (const m of short) {
+      const days = MODEL_BY_ID[m]?.days ?? 0;
+      groups.set(days, [...(groups.get(days) || []), shortName(m)]);
+    }
+    parts.push([...groups.entries()].sort((a, b) => a[0] - b[0]).map(([days, names], i) => (i === 0
+      ? `${andList(names)} ${verb(names, 'arriva', 'arrivano')} solo a ${days} giorni`
+      : `${andList(names)} a ${days}`)).join(', '));
+  }
+  if (outside.length) parts.push(`${andList(outside.map(shortName))} non ${verb(outside, 'copre', 'coprono')} questo luogo`);
+  return `${when} ${present.length === 1 ? "c'è" : 'ci sono'} ${present.length} dei ${chosen.length} modelli che hai scelto: ${parts.join('; ')}.`;
 }
 
 // Il giorno di un'ora, per esteso e in breve: "Domani, martedì 20" e "Domani", "Mercoledì 21" e "Mer 21".
@@ -259,7 +291,11 @@ export function buildPrompt({ place, result, skill, weights, evaluation, truthLa
   const L = [];
   const nModels = result.models.length;
   const names = result.models.map(shortName).join(', ');
-  L.push(`Sei un meteorologo esperto. Ti passo la previsione per ${place.name}${place.admin ? ` (${place.admin})` : ''}, ${place.elevation != null ? `${Math.round(place.elevation)} m s.l.m., ` : ''}preparata dalla mia app meteo: è la media pesata di ${nModels} modelli (${names}), con gli errori sistematici di ogni modello corretti confrontando le sue previsioni degli ultimi 35 giorni con i dati reali (${truthLabel || 'analisi ECMWF'}). I modelli che qui hanno sbagliato meno pesano di più.${extra.alerts ? ' Le allerte sono quelle ufficiali della Protezione Civile, non una previsione dell\'app.' : ''}`);
+  const local = result.models.filter((m) => (MODEL_BY_ID[m]?.days ?? 99) < 7);
+  const horizon = local.length
+    ? ` I modelli locali si fermano prima (${local.map((m) => `${shortName(m)} dopo ${MODEL_BY_ID[m].days} giorni`).join(', ')}): per questo nei giorni lontani il numero dei modelli scende.`
+    : '';
+  L.push(`Sei un meteorologo esperto. Ti passo la previsione per ${place.name}${place.admin ? ` (${place.admin})` : ''}, ${place.elevation != null ? `${Math.round(place.elevation)} m s.l.m., ` : ''}preparata dalla mia app meteo: è la media pesata di ${nModels} modelli (${names}), con gli errori sistematici di ogni modello corretti confrontando le sue previsioni degli ultimi 35 giorni con i dati reali (${truthLabel || 'analisi ECMWF'}). I modelli che qui hanno sbagliato meno pesano di più.${horizon}${extra.alerts ? ' Le allerte sono quelle ufficiali della Protezione Civile, non una previsione dell\'app.' : ''}`);
   L.push('');
   const q = (question || '').trim();
   if (q) L.push(`La mia domanda: «${q}»`);
