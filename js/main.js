@@ -25,7 +25,7 @@ import { getAlerts, OFFICIAL_URL, RISKS, LEVEL_WORDS } from './alerts.js';
 import { pickStation } from './stations.js';
 import { loadComuni, searchIndex, mergeResults, pickCentre } from './search.js';
 
-const VERSION = '3.1.1';
+const VERSION = '3.1.2';
 const VER_VERSION = 3;
 const FC_FRESH = 20 * 60e3;
 const VER_FRESH = 12 * 3600e3;
@@ -347,6 +347,7 @@ async function load({ force = false } = {}) {
   if (state.cache.ver && state.cache.ver.v !== VER_VERSION) state.cache.ver = null;
   state.alerts = null;
   state.error = null;
+  if (state.preview != null) state.stripHome = true; // la previsione torna ad adesso: anche la striscia
   state.preview = null;
   compute();
 
@@ -715,8 +716,16 @@ function render() {
   state.revealed = place.id;
   main.innerHTML = updateHTML() + alertBannerHTML() + heroHTML(v, first) + stripHTML(v) + soonHTML(v)
     + weekHTML(v) + outdoorHTML(v, place) + alertsHTML() + trustHTML(v, place) + diaryHTML(v, place) + creditsHTML(v);
+  // la striscia resta dov'era, tranne con un luogo nuovo o quando si torna ad adesso
   const sc = $('.scroller');
-  if (sc) sc.scrollLeft = left;
+  if (sc) sc.scrollLeft = first || state.stripHome ? 0 : left;
+  state.stripHome = false;
+}
+
+// Riporta la striscia delle ore all'inizio, dove c'è "Ora".
+function stripHome() {
+  const sc = $('.scroller');
+  if (sc && sc.scrollLeft > 0) sc.scrollTo({ left: 0, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
 }
 
 function updateHTML() {
@@ -1361,6 +1370,7 @@ document.addEventListener('click', (e) => {
   if (t.matches('.st-hit')) {
     const k = Number(t.dataset.k);
     setPreview(k === 0 || k === state.preview ? null : k);
+    if (k === 0) stripHome();
     return;
   }
   if (t.id === 'placeBtn') { openSheet('places'); return; }
@@ -1391,7 +1401,11 @@ document.addEventListener('click', (e) => {
   else if (a === 'gps') useGps();
   else if (a === 'retry') load({ force: true });
   else if (a === 'retry-ver') { store.del(`ver.${state.currentId}`); load(); }
-  else if (a === 'now') setPreview(null);
+  else if (a === 'now') {
+    setPreview(null);
+    stripHome();
+    $('.st-hit')?.focus({ preventScroll: true }); // il pulsante sparisce: il fuoco va su "Adesso"
+  }
   else if (a === 'share') sharePrompt();
   else if (a === 'copy') copyPrompt();
   else if (a === 'radar-play' && radar) {
