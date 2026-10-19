@@ -257,14 +257,25 @@ export async function searchPlaces(text, opts) {
   }));
 }
 
+// Nome del luogo da un indirizzo di OpenStreetMap. Prima la frazione o il paese dove si è davvero
+// (Macerone), poi il comune (Cesena), che va nella riga sotto. Quartieri e zone di una città non
+// contano: in centro a Bologna il nome resta Bologna.
+export function placeFromAddress(a = {}) {
+  const comune = a.city || a.town || a.municipality || a.village || null;
+  const local = a.hamlet || (a.village && a.village !== comune ? a.village : null);
+  const name = local || comune || a.suburb || a.county || null;
+  if (!name) return null;
+  const country = a.country_code && a.country_code !== 'it' ? a.country : null;
+  const admin = [comune && comune !== name ? comune : null, a.state || a.region, country].filter(Boolean).join(', ');
+  return { name, admin };
+}
+
 // Nome del luogo dalle coordinate GPS (OpenStreetMap). Se fallisce restano le coordinate.
+// Livello "strade" (zoom 16): l'indirizzo comprende anche le frazioni più piccole.
 export async function reverseName(lat, lon) {
   try {
-    const data = await getJSON(url(REVERSE, { format: 'jsonv2', lat, lon, zoom: 14, 'accept-language': 'it' }), { timeout: 8000 });
-    const a = data.address || {};
-    const name = a.village || a.town || a.city || a.hamlet || a.suburb || a.municipality || data.name;
-    if (!name) return null;
-    return { name, admin: [a.state || a.region, a.country_code && a.country_code !== 'it' ? a.country : null].filter(Boolean).join(', ') };
+    const data = await getJSON(url(REVERSE, { format: 'jsonv2', lat, lon, zoom: 16, addressdetails: 1, 'accept-language': 'it' }), { timeout: 8000 });
+    return placeFromAddress(data.address);
   } catch {
     return null;
   }

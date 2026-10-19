@@ -2,7 +2,7 @@
 // con una fascia chiara che mostra quanto i modelli sono d'accordo.
 
 import { isNum } from './engine.js';
-import { makeFormatters, f0, pct, describe, amount } from './text.js';
+import { makeFormatters, f0, pct, describe, amount, dayOf } from './text.js';
 import { iconBody } from './icons.js';
 import { sunPosition } from './sky.js';
 
@@ -30,6 +30,21 @@ export function stripHours(result, count = 48) {
   return result.hours.slice(start, start + count + 1).filter(Boolean);
 }
 
+// La striscia attraversa due o tre giorni: per ognuno il tratto di ore che gli appartiene.
+export function stripDays(result, hs, fmt) {
+  const segs = [];
+  hs.forEach((h, k) => {
+    const last = segs[segs.length - 1];
+    if (last && last.day === h.day) last.n++;
+    else segs.push({ day: h.day, k, n: 1, ...dayOf(h.t, h.day, result.days, fmt) });
+  });
+  return segs;
+}
+
+// Larghezza approssimata di un'etichetta del giorno (13 px, seminero) per non farla uscire dal suo tratto.
+const labelWidth = (s) => s.length * 7.6;
+export const DAY_ROW = 28;
+
 export function hourStrip(result, bm, place, { selected = null } = {}) {
   const hs = stripHours(result);
   if (hs.length < 4) return null;
@@ -37,6 +52,7 @@ export function hourStrip(result, bm, place, { selected = null } = {}) {
   const W = hs.length * COL;
   const iconY = 26, popY = 70, amtY = 86, zoneTop = 94, zoneH = 96, H = 210;
   const x = (k) => k * COL + COL / 2;
+  const days = stripDays(result, hs, fmt);
 
   const lo = Math.min(...hs.map((h) => h.lo));
   const hi = Math.max(...hs.map((h) => h.hi));
@@ -46,6 +62,11 @@ export function hourStrip(result, bm, place, { selected = null } = {}) {
   const parts = [];
   if (selected != null && hs[selected]) {
     parts.push(`<rect class="st-sel" x="${selected * COL + 3}" y="2" width="${COL - 6}" height="${H - 4}" rx="18"/>`);
+  }
+
+  // Mezzanotte: una linea netta dove comincia il giorno dopo
+  for (const d of days.slice(1)) {
+    parts.push(`<line class="st-midnight" x1="${d.k * COL + 0.5}" x2="${d.k * COL + 0.5}" y1="0" y2="${zoneTop + zoneH}"/>`);
   }
 
   // Alba e tramonto
@@ -85,13 +106,27 @@ export function hourStrip(result, bm, place, { selected = null } = {}) {
     parts.push(`<text class="st-temp" x="${cx}" y="${(cy - 11).toFixed(1)}">${f0(h.temp)}°</text>`);
   });
 
-  const buttons = hs.map((h, k) => `<button type="button" class="st-hit" data-k="${k}" style="left:${k * COL}px" aria-label="${k === 0 ? 'Adesso' : `Ore ${fmt.hour(h.t)}`}: ${f0(h.temp)} gradi, ${describe(h.code).toLowerCase()}${h.pop >= 0.2 ? `, precipitazioni ${pct(h.pop)}` : ''}${showAmount(h) ? `, ${amount(h.precip, h.snow).text}` : ''}" aria-pressed="${k === selected}"></button>`).join('');
+  const when = (h, k) => {
+    if (k === 0) return 'Adesso';
+    const d = dayOf(h.t, h.day, result.days, fmt);
+    return `${d.short === 'Oggi' ? 'Oggi' : d.long} alle ${fmt.hour(h.t)}`;
+  };
+  const buttons = hs.map((h, k) => `<button type="button" class="st-hit" data-k="${k}" style="left:${k * COL}px" aria-label="${when(h, k)}: ${f0(h.temp)} gradi, ${describe(h.code).toLowerCase()}${h.pop >= 0.2 ? `, precipitazioni ${pct(h.pop)}` : ''}${showAmount(h) ? `, ${amount(h.precip, h.snow).text}` : ''}" aria-pressed="${k === selected}"></button>`).join('');
 
-  const html = `<div class="st-track" style="width:${W}px;height:${H}px">
+  // Il nome del giorno resta fermo a sinistra mentre si scorre, finché arriva quello dopo.
+  // Se il tratto è corto si usa il nome breve, se è cortissimo nessuno.
+  const dayRow = days.map((d, i) => {
+    const room = d.n * COL - 14 - 8;
+    const text = labelWidth(d.long) <= room ? d.long : labelWidth(d.short) <= room ? d.short : '';
+    return `<div class="st-day${i ? ' next' : ''}" style="width:${d.n * COL}px"><span>${text}</span></div>`;
+  }).join('');
+
+  const html = `<div class="st-track" style="width:${W}px;height:${H + DAY_ROW}px">
+    <div class="st-days" style="height:${DAY_ROW}px" aria-hidden="true">${dayRow}</div>
     <svg class="st-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">${parts.join('')}</svg>
     ${buttons}
   </div>`;
-  return { html, hours: hs };
+  return { html, hours: hs, days };
 }
 
 // Colore della temperatura per le barre dei giorni.

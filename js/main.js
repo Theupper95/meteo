@@ -15,7 +15,7 @@ import {
   f0, f1, deg, pct, mm, signed, describe, rose, windText, makeFormatters,
   CONF_LABEL, reasonText, nextHoursText, buildPrompt, claudeUrl,
   nowcastText, alertHeadline, alertDayText, alertMax, airText, seaText, freezingText, uvText, diarySummaryText,
-  cm, amount,
+  cm, amount, dayOf, dayLabel,
 } from './text.js';
 import { weatherIcon, UI } from './icons.js';
 import { hourStrip, stripHours, tempColor, showAmount } from './chart.js';
@@ -25,7 +25,7 @@ import { getAlerts, OFFICIAL_URL, RISKS, LEVEL_WORDS } from './alerts.js';
 import { pickStation } from './stations.js';
 import { loadComuni, searchIndex, mergeResults, pickCentre } from './search.js';
 
-const VERSION = '3.1.0';
+const VERSION = '3.1.1';
 const VER_VERSION = 3;
 const FC_FRESH = 20 * 60e3;
 const VER_FRESH = 12 * 3600e3;
@@ -317,10 +317,26 @@ async function loadAlerts(place, token, { force = false } = {}) {
   } catch { /* le allerte sono facoltative: resta l'ultimo bollettino salvato */ }
 }
 
+// Fino alla 3.1.0 il GPS dava il nome del comune anche nelle frazioni (Cesena invece di Macerone):
+// i luoghi salvati così ricevono il nome giusto una volta sola.
+const GPS_NAMING = 2;
+const renaming = new Set();
+async function renameGpsPlace(place) {
+  if (!place?.gps || place.named === GPS_NAMING || renaming.has(place.id)) return;
+  renaming.add(place.id);
+  const named = await reverseName(place.lat, place.lon);
+  renaming.delete(place.id);
+  if (!named) return; // senza rete: si riprova la prossima volta
+  Object.assign(place, { name: named.name, admin: named.admin, named: GPS_NAMING });
+  savePlaces();
+  if (currentPlace()?.id === place.id) render();
+}
+
 async function load({ force = false } = {}) {
   const place = currentPlace();
   clearRetry({ reset: false });
   if (!place) { state.view = null; render(); updateSky(); return; }
+  renameGpsPlace(place);
   const token = ++loadToken;
   const key = modelsKey(state.models);
   state.cache = {
@@ -479,9 +495,13 @@ function selectPlace(p) {
   const id = placeId(p);
   let place = state.places.find((x) => x.id === id);
   if (!place) {
-    place = { id, name: p.name, admin: p.admin || '', lat: p.lat, lon: p.lon, elevation: p.elevation ?? null, gps: !!p.gps };
+    place = { id, name: p.name, admin: p.admin || '', lat: p.lat, lon: p.lon, elevation: p.elevation ?? null, gps: !!p.gps, ...(p.gps ? { named: p.named || 1 } : {}) };
     state.places.unshift(place);
     state.places = state.places.slice(0, 12);
+    savePlaces();
+  } else if (p.gps && p.named === GPS_NAMING && (place.name !== p.name || place.admin !== (p.admin || ''))) {
+    // stessa posizione di prima, nome trovato di nuovo
+    Object.assign(place, { name: p.name, admin: p.admin || '', named: GPS_NAMING });
     savePlaces();
   }
   state.currentId = id;
@@ -581,7 +601,7 @@ function useGps() {
       const lon = Math.round(pos.coords.longitude * 1000) / 1000;
       const named = await reverseName(lat, lon);
       state.gpsMessage = null;
-      selectPlace({ name: named?.name || 'La mia posizione', admin: named?.admin || '', lat, lon, gps: true });
+      selectPlace({ name: named?.name || 'La mia posizione', admin: named?.admin || '', lat, lon, gps: true, named: named ? GPS_NAMING : 1 });
     },
     (err) => {
       state.gpsMessage = err.code === 1
@@ -726,11 +746,10 @@ function alertBannerHTML() {
   </button>`;
 }
 
+// "Oggi alle 15", "Domani, martedì 20, alle 03", "Mercoledì 21, alle 03"
 function dayWord(h, result, fmt) {
-  const today = result.days[0]?.key;
-  const tomorrow = result.days[1]?.key;
-  const when = h.day === today ? 'Oggi' : h.day === tomorrow ? 'Domani' : cap(fmt.weekdayLong(h.t));
-  return `${when} alle ${fmt.hour(h.t)}`;
+  const d = dayOf(h.t, h.day, result.days, fmt);
+  return d.short === 'Oggi' ? `Oggi alle ${fmt.hour(h.t)}` : `${d.long}, alle ${fmt.hour(h.t)}`;
 }
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -805,7 +824,7 @@ function weekHTML(v) {
   const pos = (t) => ((t - lo) / Math.max(1, hi - lo)) * 100;
   const grad = (a, b) => `linear-gradient(90deg,${tempColor(a)},${tempColor(b)})`;
   const rows = ds.map((d) => {
-    const name = d.dayIndex === 0 ? 'Oggi' : cap(fmt.weekday(d.t + 43200));
+    const name = dayLabel(d, fmt);
     const open = state.openDay === d.key;
     const a = pos(d.tmin), b = Math.max(pos(d.tmax), a + 3);
     return `<li class="day${open ? ' open' : ''}">

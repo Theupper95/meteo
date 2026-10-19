@@ -87,6 +87,15 @@ export function dayLabel(day, fmt) {
   return w.charAt(0).toUpperCase() + w.slice(1) + ' ' + fmt.dayNum(day.t + 12 * 3600);
 }
 
+// Il giorno di un'ora, per esteso e in breve: "Domani, martedì 20" e "Domani", "Mercoledì 21" e "Mer 21".
+export function dayOf(t, key, days, fmt) {
+  const date = `${fmt.weekdayLong(t)} ${fmt.dayNum(t)}`;
+  if (key === days?.[0]?.key) return { short: 'Oggi', long: `Oggi, ${date}` };
+  if (key === days?.[1]?.key) return { short: 'Domani', long: `Domani, ${date}` };
+  const w = fmt.weekday(t);
+  return { short: `${w.charAt(0).toUpperCase()}${w.slice(1)} ${fmt.dayNum(t)}`, long: date.charAt(0).toUpperCase() + date.slice(1) };
+}
+
 export const CONF_LABEL = { 3: 'Fiducia alta', 2: 'Fiducia media', 1: 'Fiducia bassa' };
 
 export function reasonText(r) {

@@ -14,6 +14,7 @@
   --fg-2: rgba(255, 255, 255, 0.76);
   --fg-3: rgba(255, 255, 255, 0.52);
   --line: rgba(255, 255, 255, 0.17);
+  --line-strong: rgba(255, 255, 255, 0.38);
   --glass: rgba(255, 255, 255, 0.14);
   --glass-line: rgba(255, 255, 255, 0.28);
   --rain: #a6dcff;
@@ -41,6 +42,7 @@
   --fg-2: rgba(11, 20, 36, 0.74);
   --fg-3: rgba(11, 20, 36, 0.52);
   --line: rgba(11, 20, 36, 0.15);
+  --line-strong: rgba(11, 20, 36, 0.32);
   --glass: rgba(255, 255, 255, 0.44);
   --glass-line: rgba(11, 20, 36, 0.14);
   --rain: #0a5c96;
@@ -196,7 +198,23 @@ a { color: inherit; }
 .st-sel { fill: var(--fg); opacity: 0.1; }
 .st-sun { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.45; }
 .st-sunlbl { font-size: 11.5px; font-weight: 600; fill: var(--fg-3) !important; }
-.st-hit { position: absolute; top: 0; width: 56px; height: 100%; border-radius: 18px; }
+/* il giorno: il nome resta fermo a sinistra mentre si scorre, una linea segna la mezzanotte */
+.st-days { display: flex; }
+.st-day { flex: none; }
+.st-day.next { border-left: 1px solid var(--line-strong); }
+.st-day span {
+  position: sticky;
+  left: 0; /* il riferimento è il bordo interno della striscia, che ha già il margine */
+  display: inline-block;
+  padding-left: 14px;
+  line-height: 22px;
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.st-midnight { stroke: var(--line-strong); stroke-width: 1; }
+.st-hit { position: absolute; top: 28px; width: 56px; height: calc(100% - 28px); border-radius: 18px; }
 .st-hit:focus-visible { outline-offset: -3px; }
 .strip-note { margin: 6px var(--gutter-r) 0 var(--gutter); font-size: 0.875rem; color: var(--fg-3); }
 

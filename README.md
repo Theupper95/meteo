@@ -24,11 +24,15 @@ pagina Releases di questo repository.
 ## Cosa mostra
 
 - **Adesso e prossime 48 ore**: temperatura, cielo, probabilità e quantità di ogni ora (millimetri di
-  pioggia, centimetri di neve) e una fascia che mostra quanto i modelli sono incerti. Il cielo sullo
+  pioggia, centimetri di neve) e una fascia che mostra quanto i modelli sono incerti. Il nome del
+  giorno (Oggi, Domani, poi il giorno della settimana) resta in vista mentre si scorre e una linea
+  segna la mezzanotte. Il cielo sullo
   sfondo è quello del luogo in quel momento: pioggia e neve più fitte quanto più è forte la
   precipitazione, inclinate dal vento, e i fulmini durante i temporali (niente animazioni se il
   telefono ha le animazioni ridotte).
 - **Prossime due ore**: la pioggia (o la neve) ogni 15 minuti e il **radar** delle ultime due ore (RainViewer).
+- **La mia posizione**: dal GPS, con il nome della frazione dove ti trovi (per esempio Macerone, nel
+  comune di Cesena).
 - **Ricerca dei luoghi** per qualsiasi parte del nome: *lazzaro* trova San Lazzaro di Savena, *pascoli*
   San Mauro Pascoli. I 7.896 comuni italiani sono nell'app e si trovano anche senza rete.
 - **Sette giorni** con il consenso dei modelli e la fiducia di ogni giorno, poi la **tendenza fino a
